@@ -20,20 +20,31 @@ const scanSteps = [
 export function ScanProgress({ currentStep }: ScanProgressProps) {
   const [activeStep, setActiveStep] = useState(0);
   const [completedSteps, setCompletedSteps] = useState<number[]>([]);
+  const [dots, setDots] = useState('');
 
   useEffect(() => {
-    // Animate through steps
+    // Animate through steps faster (every 1.5 seconds)
     const interval = setInterval(() => {
       setActiveStep((prev) => {
         const next = (prev + 1) % scanSteps.length;
         if (prev < scanSteps.length - 1) {
-          setCompletedSteps((completed) => [...completed, prev]);
+          setCompletedSteps((completed) =>
+            completed.includes(prev) ? completed : [...completed, prev]
+          );
         }
         return next;
       });
-    }, 2500);
+    }, 1500);
 
-    return () => clearInterval(interval);
+    // Animate dots
+    const dotsInterval = setInterval(() => {
+      setDots((prev) => (prev.length >= 3 ? '' : prev + '.'));
+    }, 400);
+
+    return () => {
+      clearInterval(interval);
+      clearInterval(dotsInterval);
+    };
   }, []);
 
   return (
@@ -106,7 +117,7 @@ export function ScanProgress({ currentStep }: ScanProgressProps) {
                   {step.label}
                 </p>
                 <p className={`text-xs truncate ${isActive ? 'text-[#A78BFA]' : 'text-[#52525B]'}`}>
-                  {isActive ? 'In progress...' : isCompleted ? 'Complete' : step.description}
+                  {isActive ? `In progress${dots}` : isCompleted ? '✓ Complete' : step.description}
                 </p>
               </div>
               {isActive && (
@@ -119,15 +130,21 @@ export function ScanProgress({ currentStep }: ScanProgressProps) {
         })}
       </div>
 
-      {/* Fun facts / tips while waiting */}
-      <div className="text-center space-y-2">
+      {/* Status message with animated dots */}
+      <div className="text-center space-y-3">
+        <div className="inline-flex items-center gap-2 px-4 py-2 rounded-full bg-[#8B5CF6]/10 border border-[#8B5CF6]/20">
+          <div className="w-2 h-2 rounded-full bg-[#8B5CF6] animate-pulse" />
+          <span className="text-sm text-[#A78BFA]">
+            Scanning 7 data sources{dots}
+          </span>
+        </div>
         <p className="text-xs text-[#52525B]">
-          Scanning 7 data sources in parallel...
+          This typically takes 15-30 seconds
         </p>
-        <div className="flex items-center justify-center gap-1">
-          <div className="w-1.5 h-1.5 rounded-full bg-[#8B5CF6] animate-bounce" style={{ animationDelay: '0ms' }} />
-          <div className="w-1.5 h-1.5 rounded-full bg-[#8B5CF6] animate-bounce" style={{ animationDelay: '150ms' }} />
-          <div className="w-1.5 h-1.5 rounded-full bg-[#8B5CF6] animate-bounce" style={{ animationDelay: '300ms' }} />
+        <div className="flex items-center justify-center gap-1.5">
+          <div className="w-2 h-2 rounded-full bg-[#8B5CF6] animate-bounce" style={{ animationDelay: '0ms' }} />
+          <div className="w-2 h-2 rounded-full bg-[#A78BFA] animate-bounce" style={{ animationDelay: '150ms' }} />
+          <div className="w-2 h-2 rounded-full bg-[#8B5CF6] animate-bounce" style={{ animationDelay: '300ms' }} />
         </div>
       </div>
     </div>
