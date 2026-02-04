@@ -88,58 +88,56 @@ async function searchWithSerper(
   query: string,
   excludeDomain: string
 ): Promise<SerperResults> {
-  // General search
-  const generalResponse = await fetch('https://google.serper.dev/search', {
-    method: 'POST',
-    headers: {
-      'X-API-KEY': SERPER_API_KEY!,
-      'Content-Type': 'application/json',
-    },
-    body: JSON.stringify({
-      q: `"${query}"`,
-      num: 20,
+  // Run all searches in PARALLEL for speed
+  const [generalResponse, thirdPartyResponse, newsResponse] = await Promise.all([
+    // General search
+    fetch('https://google.serper.dev/search', {
+      method: 'POST',
+      headers: {
+        'X-API-KEY': SERPER_API_KEY!,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        q: `"${query}"`,
+        num: 20,
+      }),
     }),
-  });
-
-  const generalData = await generalResponse.json();
-  const totalResults = generalData.organic?.length || 0;
-
-  // Third-party search (exclude company domain)
-  const thirdPartyResponse = await fetch('https://google.serper.dev/search', {
-    method: 'POST',
-    headers: {
-      'X-API-KEY': SERPER_API_KEY!,
-      'Content-Type': 'application/json',
-    },
-    body: JSON.stringify({
-      q: `"${query}" -site:${excludeDomain}`,
-      num: 20,
+    // Third-party search (exclude company domain)
+    fetch('https://google.serper.dev/search', {
+      method: 'POST',
+      headers: {
+        'X-API-KEY': SERPER_API_KEY!,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        q: `"${query}" -site:${excludeDomain}`,
+        num: 20,
+      }),
     }),
-  });
-
-  const thirdPartyData = await thirdPartyResponse.json();
-  const thirdPartyCount = thirdPartyData.organic?.length || 0;
-
-  // News search
-  const newsResponse = await fetch('https://google.serper.dev/news', {
-    method: 'POST',
-    headers: {
-      'X-API-KEY': SERPER_API_KEY!,
-      'Content-Type': 'application/json',
-    },
-    body: JSON.stringify({
-      q: `"${query}"`,
-      num: 10,
+    // News search
+    fetch('https://google.serper.dev/news', {
+      method: 'POST',
+      headers: {
+        'X-API-KEY': SERPER_API_KEY!,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        q: `"${query}"`,
+        num: 10,
+      }),
     }),
-  });
+  ]);
 
-  const newsData = await newsResponse.json();
-  const newsCount = newsData.news?.length || 0;
+  const [generalData, thirdPartyData, newsData] = await Promise.all([
+    generalResponse.json(),
+    thirdPartyResponse.json(),
+    newsResponse.json(),
+  ]);
 
   return {
-    totalResults,
-    thirdPartyCount,
-    newsCount,
+    totalResults: generalData.organic?.length || 0,
+    thirdPartyCount: thirdPartyData.organic?.length || 0,
+    newsCount: newsData.news?.length || 0,
   };
 }
 

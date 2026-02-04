@@ -198,38 +198,31 @@ export async function collectWebsiteSignals(
 }
 
 async function checkUrl(url: string): Promise<boolean> {
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), 5000); // 5 second timeout
+
   try {
     const response = await fetch(url, {
       method: 'HEAD',
       headers: {
         'User-Agent': 'Mozilla/5.0 (compatible; DiligenceScanner/1.0)',
       },
+      signal: controller.signal,
     });
+    clearTimeout(timeout);
     return response.ok;
   } catch {
-    // Try GET as fallback (some servers don't support HEAD)
-    try {
-      const response = await fetch(url, {
-        headers: {
-          'User-Agent': 'Mozilla/5.0 (compatible; DiligenceScanner/1.0)',
-        },
-      });
-      return response.ok;
-    } catch {
-      return false;
-    }
+    clearTimeout(timeout);
+    return false;
   }
 }
 
 async function checkPaths(baseUrl: string, paths: string[]): Promise<boolean> {
-  for (const path of paths) {
-    const fullUrl = `${baseUrl}${path}`;
-    const exists = await checkUrl(fullUrl);
-    if (exists) {
-      return true;
-    }
-  }
-  return false;
+  // Check all paths in parallel for speed
+  const results = await Promise.all(
+    paths.map((path) => checkUrl(`${baseUrl}${path}`))
+  );
+  return results.some((exists) => exists);
 }
 
 function extractContactInfo(
