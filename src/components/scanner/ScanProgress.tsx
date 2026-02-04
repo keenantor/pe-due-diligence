@@ -17,10 +17,11 @@ const scanSteps = [
   { icon: Brain, label: 'AI Analysis', desc: 'Generating insights' },
 ];
 
-export function ScanProgress({ currentStep }: ScanProgressProps) {
+export function ScanProgress({ progress, currentStep }: ScanProgressProps) {
   const [activeStep, setActiveStep] = useState(0);
   const [completedSteps, setCompletedSteps] = useState<number[]>([]);
   const [dotCount, setDotCount] = useState(1);
+  const [displayProgress, setDisplayProgress] = useState(progress || 10);
 
   useEffect(() => {
     const stepTimer = setInterval(() => {
@@ -36,14 +37,23 @@ export function ScanProgress({ currentStep }: ScanProgressProps) {
       setDotCount((prev) => (prev >= 3 ? 1 : prev + 1));
     }, 400);
 
+    // Animate the progress percentage smoothly
+    const progressTimer = setInterval(() => {
+      setDisplayProgress((prev) => {
+        if (prev >= 95) return prev; // Cap at 95% until complete
+        return prev + Math.random() * 3 + 1; // Random increment between 1-4%
+      });
+    }, 800);
+
     return () => {
       clearInterval(stepTimer);
       clearInterval(dotTimer);
+      clearInterval(progressTimer);
     };
   }, []);
 
   const dots = '.'.repeat(dotCount);
-  const progressPercent = Math.min(95, (completedSteps.length / scanSteps.length) * 100 + 15);
+  const progressPercent = Math.min(95, Math.round(displayProgress));
 
   return (
     <div className="w-full max-w-lg mx-auto space-y-8 p-4">
@@ -59,13 +69,19 @@ export function ScanProgress({ currentStep }: ScanProgressProps) {
         <p className="text-gray-400">{currentStep}</p>
       </div>
 
-      {/* Progress bar */}
-      <div className="relative h-3 bg-gray-800 rounded-full overflow-hidden">
-        <div
-          className="h-full bg-gradient-to-r from-purple-600 to-purple-400 rounded-full transition-all duration-700"
-          style={{ width: `${progressPercent}%` }}
-        />
-        <div className="absolute inset-0 bg-gradient-to-r from-transparent via-white/20 to-transparent animate-pulse" />
+      {/* Progress bar with percentage */}
+      <div className="space-y-2">
+        <div className="flex justify-between items-center">
+          <span className="text-sm text-gray-400">Progress</span>
+          <span className="text-2xl font-bold text-white tabular-nums">{progressPercent}%</span>
+        </div>
+        <div className="relative h-3 bg-gray-800 rounded-full overflow-hidden">
+          <div
+            className="h-full bg-gradient-to-r from-purple-600 to-purple-400 rounded-full transition-all duration-700"
+            style={{ width: `${progressPercent}%` }}
+          />
+          <div className="absolute inset-0 bg-gradient-to-r from-transparent via-white/20 to-transparent animate-pulse" />
+        </div>
       </div>
 
       {/* Steps grid */}
