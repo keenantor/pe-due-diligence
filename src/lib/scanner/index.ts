@@ -43,8 +43,8 @@ export async function runScan(options: ScanOptions): Promise<ScanResult> {
   const allSignals: Signal[] = [];
   const errors: Array<{ collector: string; error: string }> = [];
 
-  // Step 1: Website crawling
-  onProgress?.(5, 'Checking website...');
+  // Step 1: Website crawling (runs first to get company name)
+  onProgress?.(10, 'Checking website...');
   try {
     const websiteResult = await collectWebsiteSignals(context);
     allSignals.push(...websiteResult.signals);
@@ -56,61 +56,61 @@ export async function runScan(options: ScanOptions): Promise<ScanResult> {
     errors.push({ collector: 'website', error: String(e) });
   }
 
-  onProgress?.(20, 'Checking domain information...');
-  // Step 2: Domain metadata
-  try {
-    const domainResult = await collectDomainSignals(context);
-    allSignals.push(...domainResult.signals);
-  } catch (e) {
-    errors.push({ collector: 'domain', error: String(e) });
-  }
+  // Step 2: Run all other collectors IN PARALLEL for speed
+  onProgress?.(30, 'Analyzing company data...');
 
-  onProgress?.(35, 'Checking search presence...');
-  // Step 3: Search presence
-  try {
-    const searchResult = await collectSearchSignals(context);
-    allSignals.push(...searchResult.signals);
-  } catch (e) {
-    errors.push({ collector: 'search', error: String(e) });
-  }
-
-  onProgress?.(45, 'Checking LinkedIn presence...');
-  // Step 4: LinkedIn detection
-  try {
-    const linkedInResult = await collectLinkedInSignals(context);
-    allSignals.push(...linkedInResult.signals);
-  } catch (e) {
-    errors.push({ collector: 'linkedin', error: String(e) });
-  }
-
-  onProgress?.(55, 'Checking job listings...');
-  // Step 5: Careers/Jobs
-  try {
-    const careersResult = await collectCareersSignals(context);
-    allSignals.push(...careersResult.signals);
-  } catch (e) {
-    errors.push({ collector: 'careers', error: String(e) });
-  }
-
-  onProgress?.(65, 'Detecting technology stack...');
-  // Step 6: Tech stack detection
-  try {
-    const techResult = await collectTechStackSignals(context);
-    allSignals.push(...techResult.signals);
-  } catch (e) {
-    errors.push({ collector: 'techstack', error: String(e) });
-  }
-
-  // Step 7: Financial data collection
-  onProgress?.(75, 'Searching public financial records...');
   let financialData: FinancialData | undefined;
-  try {
-    const financialResult = await collectFinancialSignals(context);
-    if (financialResult.financialData.available) {
-      financialData = financialResult.financialData;
-    }
-  } catch (e) {
-    errors.push({ collector: 'financials', error: String(e) });
+
+  const [domainResult, searchResult, linkedInResult, careersResult, techResult, financialResult] =
+    await Promise.allSettled([
+      collectDomainSignals(context),
+      collectSearchSignals(context),
+      collectLinkedInSignals(context),
+      collectCareersSignals(context),
+      collectTechStackSignals(context),
+      collectFinancialSignals(context),
+    ]);
+
+  // Process domain result
+  if (domainResult.status === 'fulfilled') {
+    allSignals.push(...domainResult.value.signals);
+  } else {
+    errors.push({ collector: 'domain', error: String(domainResult.reason) });
+  }
+
+  // Process search result
+  if (searchResult.status === 'fulfilled') {
+    allSignals.push(...searchResult.value.signals);
+  } else {
+    errors.push({ collector: 'search', error: String(searchResult.reason) });
+  }
+
+  // Process LinkedIn result
+  if (linkedInResult.status === 'fulfilled') {
+    allSignals.push(...linkedInResult.value.signals);
+  } else {
+    errors.push({ collector: 'linkedin', error: String(linkedInResult.reason) });
+  }
+
+  // Process careers result
+  if (careersResult.status === 'fulfilled') {
+    allSignals.push(...careersResult.value.signals);
+  } else {
+    errors.push({ collector: 'careers', error: String(careersResult.reason) });
+  }
+
+  // Process tech stack result
+  if (techResult.status === 'fulfilled') {
+    allSignals.push(...techResult.value.signals);
+  } else {
+    errors.push({ collector: 'techstack', error: String(techResult.reason) });
+  }
+
+  // Process financial result
+  if (financialResult.status === 'fulfilled' && financialResult.value.financialData.available) {
+    financialData = financialResult.value.financialData;
+  } else if (financialResult.status === 'rejected') {
+    errors.push({ collector: 'financials', error: String(financialResult.reason) });
   }
 
   onProgress?.(85, 'Calculating score...');
@@ -151,31 +151,25 @@ export async function runScan(options: ScanOptions): Promise<ScanResult> {
     duration: Date.now() - startTime,
   };
 
-  // Generate AI interpretation
+  // Generate AI interpretation and financial analysis IN PARALLEL
   onProgress?.(90, 'Generating AI analysis...');
   let aiInterpretation: string | undefined;
   let financialAnalysis: string | undefined;
 
-  try {
-    const interpretation = await generateAIInterpretation(preliminaryResult);
-    if (interpretation) {
-      aiInterpretation = interpretation;
-    }
-  } catch (e) {
-    console.error('AI interpretation failed:', e);
+  const aiPromises: Promise<string | null>[] = [generateAIInterpretation(preliminaryResult)];
+
+  if (financialData?.available && financialData.records.length > 0) {
+    aiPromises.push(generateFinancialAnalysis(financialData, companyName));
   }
 
-  // Generate financial analysis if data available
-  if (financialData?.available && financialData.records.length > 0) {
-    onProgress?.(95, 'Analyzing financial data...');
-    try {
-      const analysis = await generateFinancialAnalysis(financialData, companyName);
-      if (analysis) {
-        financialAnalysis = analysis;
-      }
-    } catch (e) {
-      console.error('Financial analysis failed:', e);
-    }
+  const [interpretationResult, financialResult2] = await Promise.allSettled(aiPromises);
+
+  if (interpretationResult.status === 'fulfilled' && interpretationResult.value) {
+    aiInterpretation = interpretationResult.value;
+  }
+
+  if (financialResult2?.status === 'fulfilled' && financialResult2.value) {
+    financialAnalysis = financialResult2.value;
   }
 
   onProgress?.(100, 'Complete');
