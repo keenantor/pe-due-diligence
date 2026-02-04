@@ -1,0 +1,123 @@
+@import "tailwindcss";
+@import "tw-animate-css";
+
+@custom-variant dark (&:is(.dark *));
+
+@theme inline {
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --font-sans: var(--font-geist-sans);
+  --font-mono: var(--font-geist-mono);
+  --color-sidebar-ring: var(--sidebar-ring);
+  --color-sidebar-border: var(--sidebar-border);
+  --color-sidebar-accent-foreground: var(--sidebar-accent-foreground);
+  --color-sidebar-accent: var(--sidebar-accent);
+  --color-sidebar-primary-foreground: var(--sidebar-primary-foreground);
+  --color-sidebar-primary: var(--sidebar-primary);
+  --color-sidebar-foreground: var(--sidebar-foreground);
+  --color-sidebar: var(--sidebar);
+  --color-chart-5: var(--chart-5);
+  --color-chart-4: var(--chart-4);
+  --color-chart-3: var(--chart-3);
+  --color-chart-2: var(--chart-2);
+  --color-chart-1: var(--chart-1);
+  --color-ring: var(--ring);
+  --color-input: var(--input);
+  --color-border: var(--border);
+  --color-destructive: var(--destructive);
+  --color-accent-foreground: var(--accent-foreground);
+  --color-accent: var(--accent);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-muted: var(--muted);
+  --color-secondary-foreground: var(--secondary-foreground);
+  --color-secondary: var(--secondary);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-primary: var(--primary);
+  --color-popover-foreground: var(--popover-foreground);
+  --color-popover: var(--popover);
+  --color-card-foreground: var(--card-foreground);
+  --color-card: var(--card);
+  --radius-sm: calc(var(--radius) - 4px);
+  --radius-md: calc(var(--radius) - 2px);
+  --radius-lg: var(--radius);
+  --radius-xl: calc(var(--radius) + 4px);
+  --radius-2xl: calc(var(--radius) + 8px);
+  --radius-3xl: calc(var(--radius) + 12px);
+  --radius-4xl: calc(var(--radius) + 16px);
+}
+
+/* Dark mode only - institutional PE theme */
+:root {
+  --radius: 0.5rem;
+
+  /* Custom PE dark theme colors */
+  --background: #0B0B0F;
+  --foreground: #F5F5F7;
+
+  --card: #0F0F14;
+  --card-foreground: #F5F5F7;
+
+  --popover: #141419;
+  --popover-foreground: #F5F5F7;
+
+  --primary: #8B5CF6;
+  --primary-foreground: #F5F5F7;
+
+  --secondary: #1A1A21;
+  --secondary-foreground: #F5F5F7;
+
+  --muted: #141419;
+  --muted-foreground: #71717A;
+
+  --accent: #6D28D9;
+  --accent-foreground: #F5F5F7;
+
+  --destructive: #7F1D1D;
+
+  --border: #27272A;
+  --input: #1A1A21;
+  --ring: #8B5CF6;
+
+  /* Signal colors (muted, no bright green/red) */
+  --signal-found: #6B7280;
+  --signal-missing: #52525B;
+
+  /* Chart colors (violet palette) */
+  --chart-1: #8B5CF6;
+  --chart-2: #A78BFA;
+  --chart-3: #C4B5FD;
+  --chart-4: #6D28D9;
+  --chart-5: #5B21B6;
+
+  --sidebar: #0F0F14;
+  --sidebar-foreground: #F5F5F7;
+  --sidebar-primary: #8B5CF6;
+  --sidebar-primary-foreground: #F5F5F7;
+  --sidebar-accent: #1A1A21;
+  --sidebar-accent-foreground: #F5F5F7;
+  --sidebar-border: #27272A;
+  --sidebar-ring: #8B5CF6;
+}
+
+@layer base {
+  * {
+    @apply border-border outline-ring/50;
+  }
+  body {
+    @apply bg-background text-foreground;
+    font-feature-settings: "rlig" 1, "calt" 1;
+  }
+}
+
+/* Custom utility classes */
+@layer utilities {
+  .text-balance {
+    text-wrap: balance;
+  }
+}
+
+/* Score display styles */
+.score-display {
+  font-variant-numeric: tabular-nums;
+  letter-spacing: -0.02em;
+}
