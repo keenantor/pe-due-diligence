@@ -75,13 +75,13 @@ export function FinancialDataDisplay({ data, aiAnalysis }: FinancialDataProps) {
   const config = sourceConfig[data.source];
   const latestRecord = data.records[0];
 
-  // Prepare chart data
+  // Prepare chart data - use red for negative values
   const chartData = latestRecord?.metrics
     ? [
-        { name: 'Revenue', value: latestRecord.metrics.revenue, fill: '#8B5CF6' },
-        { name: 'Gross Profit', value: latestRecord.metrics.grossProfit, fill: '#A78BFA' },
-        { name: 'Operating Income', value: latestRecord.metrics.operatingIncome, fill: '#6366F1' },
-        { name: 'Net Income', value: latestRecord.metrics.netIncome, fill: '#818CF8' },
+        { name: 'Revenue', value: latestRecord.metrics.revenue, fill: (latestRecord.metrics.revenue ?? 0) < 0 ? '#F87171' : '#8B5CF6' },
+        { name: 'Gross Profit', value: latestRecord.metrics.grossProfit, fill: (latestRecord.metrics.grossProfit ?? 0) < 0 ? '#F87171' : '#A78BFA' },
+        { name: 'Operating Income', value: latestRecord.metrics.operatingIncome, fill: (latestRecord.metrics.operatingIncome ?? 0) < 0 ? '#F87171' : '#6366F1' },
+        { name: 'Net Income', value: latestRecord.metrics.netIncome, fill: (latestRecord.metrics.netIncome ?? 0) < 0 ? '#F87171' : '#818CF8' },
       ].filter((d) => d.value !== undefined)
     : [];
 
@@ -187,7 +187,11 @@ export function FinancialDataDisplay({ data, aiAnalysis }: FinancialDataProps) {
                         width={110}
                       />
                       <Tooltip
-                        formatter={(value) => [formatCurrency(value as number, latestRecord.currency), '']}
+                        formatter={(value) => {
+                          const num = value as number;
+                          const formatted = formatCurrency(num, latestRecord.currency);
+                          return [num < 0 ? `${formatted} (Loss)` : formatted, ''];
+                        }}
                         contentStyle={{
                           backgroundColor: '#141419',
                           border: '1px solid #27272A',
@@ -227,7 +231,11 @@ export function FinancialDataDisplay({ data, aiAnalysis }: FinancialDataProps) {
                         width={110}
                       />
                       <Tooltip
-                        formatter={(value) => [formatCurrency(value as number, latestRecord.currency), '']}
+                        formatter={(value) => {
+                          const num = value as number;
+                          const formatted = formatCurrency(num, latestRecord.currency);
+                          return [num < 0 ? `${formatted} (Loss)` : formatted, ''];
+                        }}
                         contentStyle={{
                           backgroundColor: '#141419',
                           border: '1px solid #27272A',
@@ -313,16 +321,24 @@ function MetricCard({
   currency?: string;
   isCount?: boolean;
 }) {
+  const isNegative = value !== undefined && value < 0;
+  const displayValue = value !== undefined
+    ? isCount
+      ? new Intl.NumberFormat('en-US').format(value)
+      : formatCurrency(value, currency)
+    : 'N/A';
+
   return (
     <div className="p-3 rounded-lg bg-[#141419]">
       <p className="text-xs text-[#52525B] mb-1">{label}</p>
-      <p className="text-lg font-semibold text-[#F5F5F7] font-mono">
-        {value !== undefined
-          ? isCount
-            ? new Intl.NumberFormat('en-US').format(value)
-            : formatCurrency(value, currency)
-          : 'N/A'}
-      </p>
+      <div className="flex items-baseline gap-1.5">
+        <p className={`text-lg font-semibold font-mono ${isNegative ? 'text-[#F87171]' : 'text-[#F5F5F7]'}`}>
+          {displayValue}
+        </p>
+        {isNegative && !isCount && (
+          <span className="text-xs text-[#F87171]/70">(Loss)</span>
+        )}
+      </div>
     </div>
   );
 }
