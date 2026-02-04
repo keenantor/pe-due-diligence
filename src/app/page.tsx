@@ -1,12 +1,12 @@
 'use client';
 
-import { useState, useCallback } from 'react';
+import { useState } from 'react';
 import { Search, Loader2, Shield, Globe, TrendingUp, FileText, Zap, Lock } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { ScanProgress } from '@/components/scanner/ScanProgress';
 import { ScanResults } from '@/components/results/ScanResults';
-import { ScanResult, ScanJob } from '@/lib/scanner/types';
+import { ScanResult } from '@/lib/scanner/types';
 import { normalizeUrl, isCompanyWebsite } from '@/lib/utils/url';
 
 type ScanState = 'idle' | 'scanning' | 'completed' | 'error';
@@ -20,31 +20,6 @@ export default function Home() {
   const [url, setUrl] = useState('');
   const [inputError, setInputError] = useState<string | null>(null);
 
-  const pollForResult = useCallback(async (jobId: string): Promise<ScanResult> => {
-    const maxAttempts = 120;
-    let attempts = 0;
-
-    while (attempts < maxAttempts) {
-      const response = await fetch(`/api/scan/${jobId}`);
-      const data: ScanJob = await response.json();
-
-      if (data.status === 'completed' && data.result) {
-        return data.result;
-      }
-
-      if (data.status === 'failed') {
-        throw new Error(data.error?.message || 'Scan failed');
-      }
-
-      setProgress(data.progress);
-      setCurrentStep(data.currentStep);
-
-      await new Promise((resolve) => setTimeout(resolve, 1000));
-      attempts++;
-    }
-
-    throw new Error('Scan timed out');
-  }, []);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -69,7 +44,7 @@ export default function Home() {
 
     setScanState('scanning');
     setProgress(0);
-    setCurrentStep('Initializing scan...');
+    setCurrentStep('Analyzing company data...');
     setError(null);
     setResult(null);
 
@@ -80,22 +55,18 @@ export default function Home() {
         body: JSON.stringify({ url: normalizedUrl }),
       });
 
-      if (!response.ok) {
-        const errorData = await response.json();
-        throw new Error(errorData.error || 'Failed to start scan');
+      const data = await response.json();
+
+      if (!response.ok || data.status === 'failed') {
+        throw new Error(data.error || 'Failed to complete scan');
       }
 
-      const { jobId, status, result: immediateResult } = await response.json();
-
-      if (status === 'completed' && immediateResult) {
-        setResult(immediateResult);
+      if (data.status === 'completed' && data.result) {
+        setResult(data.result);
         setScanState('completed');
-        return;
+      } else {
+        throw new Error('Scan completed but no result returned');
       }
-
-      const scanResult = await pollForResult(jobId);
-      setResult(scanResult);
-      setScanState('completed');
     } catch (err) {
       setError(err instanceof Error ? err.message : 'An error occurred');
       setScanState('error');
