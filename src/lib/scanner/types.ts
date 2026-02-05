@@ -45,6 +45,21 @@ export interface EffortEstimate {
   reasons: string[];
 }
 
+// Financial metrics from verified sources
+export interface FinancialMetrics {
+  revenue?: number;
+  netIncome?: number;
+  grossProfit?: number;
+  totalAssets?: number;
+  totalLiabilities?: number;
+  totalEquity?: number;
+  operatingIncome?: number;
+  eps?: number;
+  period?: string;
+  fiscalYear?: string;
+  currency?: string;
+}
+
 // Financial data from public filings
 export interface FinancialData {
   available: boolean;
@@ -56,6 +71,7 @@ export interface FinancialData {
   cik?: string;
   companyNumber?: string;
   message: string;
+  metrics?: FinancialMetrics;
 }
 
 export interface FinancialRecord {

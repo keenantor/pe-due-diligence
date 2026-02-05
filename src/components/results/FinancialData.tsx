@@ -1,6 +1,6 @@
 'use client';
 
-import { ExternalLink, FileText, DollarSign, TrendingUp, Building2, AlertCircle, CheckCircle2 } from 'lucide-react';
+import { ExternalLink, FileText, DollarSign, TrendingUp, Building2, AlertCircle, CheckCircle2, BarChart3 } from 'lucide-react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { FinancialData as FinancialDataType } from '@/lib/scanner/collectors/financials';
@@ -8,6 +8,23 @@ import { FinancialData as FinancialDataType } from '@/lib/scanner/collectors/fin
 interface FinancialDataProps {
   data: FinancialDataType | undefined;
   aiAnalysis?: string;
+}
+
+// Format large numbers as currency
+function formatCurrency(value: number, currency: string = 'USD'): string {
+  const absValue = Math.abs(value);
+  const sign = value < 0 ? '-' : '';
+
+  if (absValue >= 1_000_000_000) {
+    return `${sign}$${(absValue / 1_000_000_000).toFixed(2)}B`;
+  }
+  if (absValue >= 1_000_000) {
+    return `${sign}$${(absValue / 1_000_000).toFixed(2)}M`;
+  }
+  if (absValue >= 1_000) {
+    return `${sign}$${(absValue / 1_000).toFixed(2)}K`;
+  }
+  return `${sign}$${absValue.toFixed(2)}`;
 }
 
 const sourceConfig = {
@@ -122,6 +139,87 @@ export function FinancialDataDisplay({ data, aiAnalysis }: FinancialDataProps) {
           )}
         </div>
 
+        {/* Financial Metrics (if available) */}
+        {data.metrics && (data.metrics.revenue || data.metrics.netIncome || data.metrics.totalAssets) && (
+          <div className="pt-4 border-t border-[#27272A]">
+            <div className="flex items-center gap-2 mb-4">
+              <BarChart3 className="w-4 h-4 text-[#8B5CF6]" />
+              <h4 className="text-sm font-medium text-[#A1A1AA]">
+                Key Financial Metrics
+                {data.metrics.fiscalYear && (
+                  <span className="text-[#52525B] font-normal ml-2">
+                    (FY {data.metrics.fiscalYear})
+                  </span>
+                )}
+              </h4>
+              <Badge variant="outline" className="text-[#22C55E] border-[#22C55E]/30 ml-auto text-xs">
+                Verified Data
+              </Badge>
+            </div>
+            <div className="grid grid-cols-2 md:grid-cols-3 gap-3">
+              {data.metrics.revenue !== undefined && (
+                <div className="p-3 rounded-lg bg-[#141419] border border-[#27272A]">
+                  <p className="text-xs text-[#71717A] mb-1">Revenue</p>
+                  <p className="text-lg font-semibold text-[#F5F5F7]">
+                    {formatCurrency(data.metrics.revenue, data.metrics.currency)}
+                  </p>
+                </div>
+              )}
+              {data.metrics.netIncome !== undefined && (
+                <div className="p-3 rounded-lg bg-[#141419] border border-[#27272A]">
+                  <p className="text-xs text-[#71717A] mb-1">Net Income</p>
+                  <p className={`text-lg font-semibold ${data.metrics.netIncome >= 0 ? 'text-[#22C55E]' : 'text-[#EF4444]'}`}>
+                    {formatCurrency(data.metrics.netIncome, data.metrics.currency)}
+                  </p>
+                </div>
+              )}
+              {data.metrics.grossProfit !== undefined && (
+                <div className="p-3 rounded-lg bg-[#141419] border border-[#27272A]">
+                  <p className="text-xs text-[#71717A] mb-1">Gross Profit</p>
+                  <p className="text-lg font-semibold text-[#F5F5F7]">
+                    {formatCurrency(data.metrics.grossProfit, data.metrics.currency)}
+                  </p>
+                </div>
+              )}
+              {data.metrics.operatingIncome !== undefined && (
+                <div className="p-3 rounded-lg bg-[#141419] border border-[#27272A]">
+                  <p className="text-xs text-[#71717A] mb-1">Operating Income</p>
+                  <p className={`text-lg font-semibold ${data.metrics.operatingIncome >= 0 ? 'text-[#F5F5F7]' : 'text-[#EF4444]'}`}>
+                    {formatCurrency(data.metrics.operatingIncome, data.metrics.currency)}
+                  </p>
+                </div>
+              )}
+              {data.metrics.totalAssets !== undefined && (
+                <div className="p-3 rounded-lg bg-[#141419] border border-[#27272A]">
+                  <p className="text-xs text-[#71717A] mb-1">Total Assets</p>
+                  <p className="text-lg font-semibold text-[#F5F5F7]">
+                    {formatCurrency(data.metrics.totalAssets, data.metrics.currency)}
+                  </p>
+                </div>
+              )}
+              {data.metrics.totalEquity !== undefined && (
+                <div className="p-3 rounded-lg bg-[#141419] border border-[#27272A]">
+                  <p className="text-xs text-[#71717A] mb-1">Shareholders&apos; Equity</p>
+                  <p className="text-lg font-semibold text-[#F5F5F7]">
+                    {formatCurrency(data.metrics.totalEquity, data.metrics.currency)}
+                  </p>
+                </div>
+              )}
+              {data.metrics.eps !== undefined && (
+                <div className="p-3 rounded-lg bg-[#141419] border border-[#27272A]">
+                  <p className="text-xs text-[#71717A] mb-1">EPS</p>
+                  <p className="text-lg font-semibold text-[#F5F5F7]">
+                    ${data.metrics.eps.toFixed(2)}
+                  </p>
+                </div>
+              )}
+            </div>
+            <p className="text-xs text-[#52525B] mt-3">
+              Source: Financial Modeling Prep API (verified SEC filing data)
+            </p>
+          </div>
+        )}
+
         {/* Filing Links */}
         {data.filingLinks.length > 0 && (
           <div className="pt-2">
@@ -164,8 +262,9 @@ export function FinancialDataDisplay({ data, aiAnalysis }: FinancialDataProps) {
         {/* Disclaimer */}
         <div className="pt-4 border-t border-[#27272A]">
           <p className="text-xs text-[#52525B]">
-            We provide links to official filings only. Please verify all financial data directly from the source.
-            This tool does not extract or display specific financial figures to ensure accuracy.
+            {data.metrics
+              ? 'Financial metrics are sourced from verified SEC filings via Financial Modeling Prep. Always verify data directly from official filings for investment decisions.'
+              : 'We provide links to official filings. Please verify all financial data directly from the source.'}
           </p>
         </div>
       </CardContent>
