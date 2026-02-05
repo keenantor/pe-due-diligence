@@ -35,8 +35,8 @@ export async function collectCareersSignals(
 
   if (SERPER_API_KEY) {
     try {
-      // Search for job listings on major job boards - use simpler, more effective query
-      debugLog('Searching LinkedIn jobs');
+      // Single consolidated search for job listings across all major boards
+      debugLog('Searching for jobs (single query)');
       const jobResponse = await fetch('https://google.serper.dev/search', {
         method: 'POST',
         headers: {
@@ -44,8 +44,8 @@ export async function collectCareersSignals(
           'Content-Type': 'application/json',
         },
         body: JSON.stringify({
-          q: `"${searchQuery}" site:linkedin.com/jobs`,
-          num: 10,
+          q: `"${searchQuery}" jobs (site:linkedin.com OR site:indeed.com OR site:glassdoor.com OR site:lever.co OR site:greenhouse.io)`,
+          num: 20,
         }),
       });
 
@@ -54,46 +54,8 @@ export async function collectCareersSignals(
       }
 
       const jobData = await jobResponse.json();
-      let jobResults = jobData.organic || [];
+      const jobResults = jobData.organic || [];
       searchSucceeded = true;
-
-      // Also search other job boards
-      const otherJobsResponse = await fetch('https://google.serper.dev/search', {
-        method: 'POST',
-        headers: {
-          'X-API-KEY': SERPER_API_KEY,
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({
-          q: `"${searchQuery}" (site:indeed.com OR site:glassdoor.com OR site:lever.co OR site:greenhouse.io OR site:workday.com)`,
-          num: 10,
-        }),
-      });
-
-      if (otherJobsResponse.ok) {
-        const otherJobData = await otherJobsResponse.json();
-        jobResults = [...jobResults, ...(otherJobData.organic || [])];
-      }
-
-      // Also try company's own careers page
-      if (domain) {
-        const careersResponse = await fetch('https://google.serper.dev/search', {
-          method: 'POST',
-          headers: {
-            'X-API-KEY': SERPER_API_KEY,
-            'Content-Type': 'application/json',
-          },
-          body: JSON.stringify({
-            q: `site:${domain} (careers OR jobs OR "open positions" OR "we're hiring")`,
-            num: 5,
-          }),
-        });
-
-        if (careersResponse.ok) {
-          const careersData = await careersResponse.json();
-          jobResults = [...jobResults, ...(careersData.organic || [])];
-        }
-      }
 
       // Valid job board domains - be more inclusive
       const validJobSites = [

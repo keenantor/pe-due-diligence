@@ -88,9 +88,9 @@ async function searchWithSerper(
   query: string,
   excludeDomain: string
 ): Promise<SerperResults> {
-  // Run all searches in PARALLEL for speed
-  const [generalResponse, thirdPartyResponse, newsResponse] = await Promise.all([
-    // General search
+  // Run searches in PARALLEL - reduced to 2 calls for speed
+  const [generalResponse, newsResponse] = await Promise.all([
+    // General search (we'll filter third-party client-side)
     fetch('https://google.serper.dev/search', {
       method: 'POST',
       headers: {
@@ -99,19 +99,7 @@ async function searchWithSerper(
       },
       body: JSON.stringify({
         q: `"${query}"`,
-        num: 20,
-      }),
-    }),
-    // Third-party search (exclude company domain)
-    fetch('https://google.serper.dev/search', {
-      method: 'POST',
-      headers: {
-        'X-API-KEY': SERPER_API_KEY!,
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify({
-        q: `"${query}" -site:${excludeDomain}`,
-        num: 20,
+        num: 30,
       }),
     }),
     // News search
@@ -128,15 +116,21 @@ async function searchWithSerper(
     }),
   ]);
 
-  const [generalData, thirdPartyData, newsData] = await Promise.all([
+  const [generalData, newsData] = await Promise.all([
     generalResponse.json(),
-    thirdPartyResponse.json(),
     newsResponse.json(),
   ]);
 
+  const allResults = generalData.organic || [];
+
+  // Filter out company's own domain for third-party count
+  const thirdPartyResults = allResults.filter(
+    (r: { link: string }) => !r.link.toLowerCase().includes(excludeDomain.toLowerCase())
+  );
+
   return {
-    totalResults: generalData.organic?.length || 0,
-    thirdPartyCount: thirdPartyData.organic?.length || 0,
+    totalResults: allResults.length,
+    thirdPartyCount: thirdPartyResults.length,
     newsCount: newsData.news?.length || 0,
   };
 }

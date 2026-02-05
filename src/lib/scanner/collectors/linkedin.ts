@@ -41,105 +41,78 @@ export async function collectLinkedInSignals(
 
   if (SERPER_API_KEY) {
     try {
-      // Search for LinkedIn company page with multiple query strategies
-      const query = `site:linkedin.com/company (${searchQuery} OR ${domainName})`;
-      debugLog('Searching LinkedIn with query', { query });
+      // Run both searches in parallel for speed
+      debugLog('Searching LinkedIn (parallel requests)');
 
-      const companyResponse = await fetch('https://google.serper.dev/search', {
-        method: 'POST',
-        headers: {
-          'X-API-KEY': SERPER_API_KEY,
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({
-          q: `site:linkedin.com/company (${searchQuery} OR ${domainName})`,
-          num: 10,
+      const [companyResponse, founderResponse] = await Promise.all([
+        // Search for LinkedIn company page
+        fetch('https://google.serper.dev/search', {
+          method: 'POST',
+          headers: {
+            'X-API-KEY': SERPER_API_KEY,
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({
+            q: `site:linkedin.com/company "${searchQuery}"`,
+            num: 10,
+          }),
         }),
-      });
+        // Search for founders/leadership
+        fetch('https://google.serper.dev/search', {
+          method: 'POST',
+          headers: {
+            'X-API-KEY': SERPER_API_KEY,
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({
+            q: `"${searchQuery}" (founder OR CEO) site:linkedin.com/in`,
+            num: 10,
+          }),
+        }),
+      ]);
 
-      if (!companyResponse.ok) {
-        const errorText = await companyResponse.text();
-        debugLog('Serper API error', { status: companyResponse.status, error: errorText });
-        throw new Error(`Serper API returned ${companyResponse.status}: ${errorText}`);
-      }
+      // Process company results
+      if (companyResponse.ok) {
+        const companyData = await companyResponse.json();
+        const companyResults = companyData.organic || [];
+        searchSucceeded = true;
 
-      const companyData = await companyResponse.json();
-      const companyResults = companyData.organic || [];
-      searchSucceeded = true;
+        debugLog('Company search results', {
+          count: companyResults.length,
+          first: companyResults[0] ? { title: companyResults[0].title, link: companyResults[0].link } : null
+        });
 
-      debugLog('Serper API response', {
-        resultsCount: companyResults.length,
-        results: companyResults.slice(0, 3).map((r: { link: string; title: string }) => ({
-          title: r.title,
-          link: r.link
-        }))
-      });
+        // Find LinkedIn company page
+        const linkedInResult = companyResults.find(
+          (r: { link: string; title: string; snippet?: string }) => {
+            const link = r.link.toLowerCase();
+            return link.includes('linkedin.com/company/');
+          }
+        );
 
-      // Look for LinkedIn company pages - be more flexible with matching
-      const linkedInResult = companyResults.find(
-        (r: { link: string; title: string; snippet?: string }) => {
-          const link = r.link.toLowerCase();
-          const title = (r.title || '').toLowerCase();
-          const snippet = (r.snippet || '').toLowerCase();
-          const query = searchQuery.toLowerCase();
-          const domainLower = domainName.toLowerCase();
-
-          // Must be a LinkedIn company page
-          if (!link.includes('linkedin.com/company/')) return false;
-
-          // Check if title, snippet, or URL contains company name or domain
-          return (
-            title.includes(query) ||
-            title.includes(domainLower) ||
-            snippet.includes(query) ||
-            snippet.includes(domainLower) ||
-            link.includes(domainLower)
-          );
+        if (linkedInResult) {
+          linkedInFound = true;
+          linkedInUrl = linkedInResult.link;
+          metadata.linkedInUrl = linkedInUrl;
+          metadata.linkedInTitle = linkedInResult.title;
+          debugLog('LinkedIn company FOUND', { linkedInUrl });
         }
-      );
-
-      debugLog('LinkedIn result matching', { linkedInResult: linkedInResult ? { title: linkedInResult.title, link: linkedInResult.link } : null });
-
-      if (linkedInResult) {
-        linkedInFound = true;
-        linkedInUrl = linkedInResult.link;
-        metadata.linkedInUrl = linkedInUrl;
-        metadata.linkedInTitle = linkedInResult.title;
-        debugLog('LinkedIn company FOUND', { linkedInUrl });
-      } else {
-        debugLog('LinkedIn company NOT FOUND - no matching results');
       }
 
-      // Search for founders/leadership on LinkedIn with better queries
-      const founderResponse = await fetch('https://google.serper.dev/search', {
-        method: 'POST',
-        headers: {
-          'X-API-KEY': SERPER_API_KEY,
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({
-          q: `"${searchQuery}" (founder OR CEO OR "co-founder" OR "chief executive" OR president) site:linkedin.com/in`,
-          num: 15,
-        }),
-      });
-
+      // Process founder results
       if (founderResponse.ok) {
         const founderData = await founderResponse.json();
         const founderResults = founderData.organic || [];
 
-        // Filter to profiles that actually mention the company
+        debugLog('Founder search results', { count: founderResults.length });
+
+        // Filter to relevant profiles
         const relevantProfiles = founderResults.filter(
           (r: { title: string; snippet?: string }) => {
             const title = (r.title || '').toLowerCase();
             const snippet = (r.snippet || '').toLowerCase();
             const query = searchQuery.toLowerCase();
-            const domainLower = domainName.toLowerCase();
-            return (
-              title.includes(query) ||
-              title.includes(domainLower) ||
-              snippet.includes(query) ||
-              snippet.includes(domainLower)
-            );
+            return title.includes(query) || snippet.includes(query);
           }
         );
 
