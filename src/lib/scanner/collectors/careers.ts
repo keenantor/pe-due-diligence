@@ -2,6 +2,14 @@ import { Signal, CollectorResult, CollectorContext } from '../types';
 
 const SERPER_API_KEY = process.env.SERPER_API_KEY;
 
+// Debug logging for Vercel
+const DEBUG = true;
+function debugLog(message: string, data?: unknown) {
+  if (DEBUG) {
+    console.log(`[Careers Collector] ${message}`, data ? JSON.stringify(data, null, 2) : '');
+  }
+}
+
 export async function collectCareersSignals(
   context: CollectorContext
 ): Promise<CollectorResult> {
@@ -18,9 +26,17 @@ export async function collectCareersSignals(
   let apiAvailable = !!SERPER_API_KEY;
   let searchSucceeded = false;
 
+  debugLog('Starting careers collection', {
+    companyName,
+    domain,
+    searchQuery,
+    apiKeyPresent: !!SERPER_API_KEY
+  });
+
   if (SERPER_API_KEY) {
     try {
       // Search for job listings on major job boards - use simpler, more effective query
+      debugLog('Searching LinkedIn jobs');
       const jobResponse = await fetch('https://google.serper.dev/search', {
         method: 'POST',
         headers: {
@@ -128,6 +144,16 @@ export async function collectCareersSignals(
       activeJobsFound = uniqueListings.length > 0;
       jobCount = uniqueListings.length;
 
+      debugLog('Job search results', {
+        totalResults: jobResults.length,
+        filteredCount: jobListings.length,
+        uniqueCount: uniqueListings.length,
+        sampleListings: uniqueListings.slice(0, 3).map((r: { title: string; link: string }) => ({
+          title: r.title,
+          link: r.link
+        }))
+      });
+
       if (activeJobsFound) {
         metadata.jobListings = uniqueListings.slice(0, 10).map(
           (r: { title: string; link: string }) => ({
@@ -144,7 +170,11 @@ export async function collectCareersSignals(
       });
       searchSucceeded = false;
     }
+  } else {
+    debugLog('SERPER_API_KEY not available - cannot search for jobs');
   }
+
+  debugLog('Final results', { activeJobsFound, jobCount, searchSucceeded, apiAvailable });
 
   // Determine status message
   const getStatusMessage = () => {

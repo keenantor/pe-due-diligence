@@ -2,6 +2,14 @@ import { Signal, CollectorResult, CollectorContext } from '../types';
 
 const SERPER_API_KEY = process.env.SERPER_API_KEY;
 
+// Debug logging for Vercel
+const DEBUG = true;
+function debugLog(message: string, data?: unknown) {
+  if (DEBUG) {
+    console.log(`[LinkedIn Collector] ${message}`, data ? JSON.stringify(data, null, 2) : '');
+  }
+}
+
 export async function collectLinkedInSignals(
   context: CollectorContext
 ): Promise<CollectorResult> {
@@ -22,9 +30,21 @@ export async function collectLinkedInSignals(
   let apiAvailable = !!SERPER_API_KEY;
   let searchSucceeded = false;
 
+  debugLog('Starting LinkedIn collection', {
+    companyName,
+    domain,
+    searchQuery,
+    domainName,
+    apiKeyPresent: !!SERPER_API_KEY,
+    apiKeyLength: SERPER_API_KEY?.length
+  });
+
   if (SERPER_API_KEY) {
     try {
       // Search for LinkedIn company page with multiple query strategies
+      const query = `site:linkedin.com/company (${searchQuery} OR ${domainName})`;
+      debugLog('Searching LinkedIn with query', { query });
+
       const companyResponse = await fetch('https://google.serper.dev/search', {
         method: 'POST',
         headers: {
@@ -38,12 +58,22 @@ export async function collectLinkedInSignals(
       });
 
       if (!companyResponse.ok) {
-        throw new Error(`Serper API returned ${companyResponse.status}`);
+        const errorText = await companyResponse.text();
+        debugLog('Serper API error', { status: companyResponse.status, error: errorText });
+        throw new Error(`Serper API returned ${companyResponse.status}: ${errorText}`);
       }
 
       const companyData = await companyResponse.json();
       const companyResults = companyData.organic || [];
       searchSucceeded = true;
+
+      debugLog('Serper API response', {
+        resultsCount: companyResults.length,
+        results: companyResults.slice(0, 3).map((r: { link: string; title: string }) => ({
+          title: r.title,
+          link: r.link
+        }))
+      });
 
       // Look for LinkedIn company pages - be more flexible with matching
       const linkedInResult = companyResults.find(
@@ -68,11 +98,16 @@ export async function collectLinkedInSignals(
         }
       );
 
+      debugLog('LinkedIn result matching', { linkedInResult: linkedInResult ? { title: linkedInResult.title, link: linkedInResult.link } : null });
+
       if (linkedInResult) {
         linkedInFound = true;
         linkedInUrl = linkedInResult.link;
         metadata.linkedInUrl = linkedInUrl;
         metadata.linkedInTitle = linkedInResult.title;
+        debugLog('LinkedIn company FOUND', { linkedInUrl });
+      } else {
+        debugLog('LinkedIn company NOT FOUND - no matching results');
       }
 
       // Search for founders/leadership on LinkedIn with better queries
@@ -126,7 +161,11 @@ export async function collectLinkedInSignals(
       });
       searchSucceeded = false;
     }
+  } else {
+    debugLog('SERPER_API_KEY not available - cannot search');
   }
+
+  debugLog('Final results', { linkedInFound, foundersFound, searchSucceeded, apiAvailable });
 
   // Determine the status message based on what happened
   const getStatusMessage = (found: boolean, defaultValue?: string) => {
