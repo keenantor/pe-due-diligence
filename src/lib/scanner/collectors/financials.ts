@@ -7,18 +7,7 @@ export interface FinancialRecord {
   sourceUrl: string;
   verified: boolean;
   period: string;
-  currency: string;
-  metrics: {
-    revenue?: number;
-    netIncome?: number;
-    totalAssets?: number;
-    totalLiabilities?: number;
-    employees?: number;
-    grossProfit?: number;
-    operatingIncome?: number;
-    ebitda?: number;
-  };
-  rawData?: string;
+  description: string;
 }
 
 export interface FinancialData {
@@ -30,7 +19,10 @@ export interface FinancialData {
   ticker?: string;
   cik?: string;
   companyNumber?: string;
+  message: string;
 }
+
+const delay = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
 
 export async function collectFinancialSignals(
   context: CollectorContext
@@ -45,23 +37,38 @@ export async function collectFinancialSignals(
     companyType: 'Unknown',
     records: [],
     filingLinks: [],
+    message: 'No public financial filings found',
   };
+
+  console.log(`[Financials] Starting search for: "${companyName || domain}"`);
 
   // Try SEC EDGAR first (US public companies)
   try {
-    const secData = await checkSECEdgar(companyName || domain);
+    console.log(`[Financials] Step 1: Checking SEC EDGAR...`);
+    await delay(1000);
+
+    const secData = await checkSECEdgar(companyName || domain || '');
     if (secData.found) {
       financialData = {
         available: true,
         source: 'SEC',
         companyType: 'Public US',
-        records: secData.records,
+        records: [{
+          source: 'SEC EDGAR',
+          sourceUrl: `https://www.sec.gov/cgi-bin/browse-edgar?action=getcompany&CIK=${secData.cik}&type=10-K`,
+          verified: true,
+          period: 'Annual Filings Available',
+          description: 'View official SEC filings for verified financial data',
+        }],
         filingLinks: secData.filings,
         ticker: secData.ticker,
         cik: secData.cik,
+        message: `Public company - SEC filings available (CIK: ${secData.cik}${secData.ticker ? `, Ticker: ${secData.ticker}` : ''})`,
       };
+      console.log(`[Financials] FOUND SEC filings for CIK: ${secData.cik}`);
     }
   } catch (e) {
+    console.error(`[Financials] SEC error:`, e);
     errors.push({
       code: 'SEC_ERROR',
       message: `SEC lookup failed: ${e}`,
@@ -72,18 +79,30 @@ export async function collectFinancialSignals(
   // Try Companies House (UK companies)
   if (!financialData.available) {
     try {
-      const ukData = await checkCompaniesHouse(companyName || domain);
+      console.log(`[Financials] Step 2: Checking Companies House...`);
+      await delay(1000);
+
+      const ukData = await checkCompaniesHouse(companyName || domain || '');
       if (ukData.found) {
         financialData = {
           available: true,
           source: 'Companies House',
           companyType: 'UK Company',
-          records: ukData.records,
+          records: [{
+            source: 'Companies House',
+            sourceUrl: ukData.filings[0]?.url || 'https://find-and-update.company-information.service.gov.uk/',
+            verified: true,
+            period: 'UK Company Filings',
+            description: 'View official UK company filings',
+          }],
           filingLinks: ukData.filings,
           companyNumber: ukData.companyNumber,
+          message: `UK company filings available (Company #: ${ukData.companyNumber})`,
         };
+        console.log(`[Financials] FOUND UK filings for: ${ukData.companyNumber}`);
       }
     } catch (e) {
+      console.error(`[Financials] UK error:`, e);
       errors.push({
         code: 'UK_ERROR',
         message: `Companies House lookup failed: ${e}`,
@@ -92,20 +111,32 @@ export async function collectFinancialSignals(
     }
   }
 
-  // Search for public financial mentions via Serper
+  // Search for public financial mentions
   if (!financialData.available && SERPER_API_KEY) {
     try {
-      const publicFilings = await searchPublicFinancials(companyName || domain);
+      console.log(`[Financials] Step 3: Searching for public financial documents...`);
+      await delay(1000);
+
+      const publicFilings = await searchPublicFinancials(companyName || domain || '');
       if (publicFilings.found) {
         financialData = {
           available: true,
           source: 'Public Filing',
           companyType: 'Private',
-          records: publicFilings.records,
+          records: [{
+            source: 'Public Documents',
+            sourceUrl: publicFilings.filings[0]?.url || '',
+            verified: false,
+            period: 'Various',
+            description: 'Financial documents found via search - verify independently',
+          }],
           filingLinks: publicFilings.filings,
+          message: 'Financial documents found - click links to verify',
         };
+        console.log(`[Financials] FOUND public financial documents`);
       }
     } catch (e) {
+      console.error(`[Financials] Search error:`, e);
       errors.push({
         code: 'SEARCH_ERROR',
         message: `Financial search failed: ${e}`,
@@ -114,11 +145,14 @@ export async function collectFinancialSignals(
     }
   }
 
+  const duration = Date.now() - startTime;
+  console.log(`[Financials] Complete in ${duration}ms - Available: ${financialData.available}`);
+
   return {
     signals: [],
     metadata: { financialData },
     errors,
-    duration: Date.now() - startTime,
+    duration,
     financialData,
   };
 }
@@ -127,12 +161,11 @@ interface SECResult {
   found: boolean;
   ticker?: string;
   cik?: string;
-  records: FinancialRecord[];
   filings: Array<{ name: string; url: string; date: string }>;
 }
 
 async function checkSECEdgar(companyName: string): Promise<SECResult> {
-  // SEC EDGAR Company Search API (free, no key required)
+  // SEC EDGAR Company Search API
   const searchUrl = `https://efts.sec.gov/LATEST/search-index?q=${encodeURIComponent(companyName)}&dateRange=custom&startdt=2020-01-01&enddt=${new Date().toISOString().split('T')[0]}&forms=10-K,10-Q`;
 
   try {
@@ -144,13 +177,13 @@ async function checkSECEdgar(companyName: string): Promise<SECResult> {
     });
 
     if (!response.ok) {
-      return { found: false, records: [], filings: [] };
+      return { found: false, filings: [] };
     }
 
     const data = await response.json();
 
     if (!data.hits || data.hits.total?.value === 0) {
-      return { found: false, records: [], filings: [] };
+      return { found: false, filings: [] };
     }
 
     const hits = data.hits.hits || [];
@@ -163,116 +196,37 @@ async function checkSECEdgar(companyName: string): Promise<SECResult> {
       cik = cik || source.ciks?.[0];
       ticker = ticker || source.tickers?.[0];
 
+      const filingCik = source.ciks?.[0];
       filings.push({
-        name: source.form || 'Filing',
-        url: `https://www.sec.gov/cgi-bin/browse-edgar?action=getcompany&CIK=${source.ciks?.[0]}&type=10-K&dateb=&owner=include&count=40`,
+        name: `${source.form || 'Filing'} - ${source.company_name || companyName}`,
+        url: filingCik
+          ? `https://www.sec.gov/cgi-bin/browse-edgar?action=getcompany&CIK=${filingCik}&type=${source.form || '10-K'}&dateb=&owner=include&count=10`
+          : `https://www.sec.gov/cgi-bin/browse-edgar?company=${encodeURIComponent(companyName)}&type=10-K`,
         date: source.file_date || source.period_of_report || '',
       });
     }
 
-    // Get actual financial data from XBRL if CIK found
-    const records: FinancialRecord[] = [];
-    if (cik) {
-      const xbrlData = await fetchSECFinancials(cik);
-      if (xbrlData) {
-        records.push(xbrlData);
-      }
-    }
-
     return {
-      found: filings.length > 0,
+      found: filings.length > 0 && !!cik,
       ticker,
       cik,
-      records,
       filings,
     };
-  } catch {
-    return { found: false, records: [], filings: [] };
-  }
-}
-
-async function fetchSECFinancials(cik: string): Promise<FinancialRecord | null> {
-  // SEC Company Facts API (free, provides XBRL data)
-  const paddedCik = cik.padStart(10, '0');
-  const factsUrl = `https://data.sec.gov/api/xbrl/companyfacts/CIK${paddedCik}.json`;
-
-  try {
-    const response = await fetch(factsUrl, {
-      headers: {
-        'User-Agent': 'DiligenceScanner/1.0 (contact@example.com)',
-        'Accept': 'application/json',
-      },
-    });
-
-    if (!response.ok) {
-      return null;
-    }
-
-    const data = await response.json();
-    const facts = data.facts?.['us-gaap'] || {};
-
-    // Extract latest annual metrics
-    const getLatestValue = (concept: string): number | undefined => {
-      const conceptData = facts[concept]?.units?.USD;
-      if (!conceptData || conceptData.length === 0) return undefined;
-
-      // Get most recent 10-K filing
-      const annualFilings = conceptData.filter((f: { form: string }) => f.form === '10-K');
-      if (annualFilings.length === 0) return undefined;
-
-      const latest = annualFilings.sort((a: { end: string }, b: { end: string }) =>
-        new Date(b.end).getTime() - new Date(a.end).getTime()
-      )[0];
-
-      return latest?.val;
-    };
-
-    const revenue = getLatestValue('Revenues') || getLatestValue('RevenueFromContractWithCustomerExcludingAssessedTax');
-    const netIncome = getLatestValue('NetIncomeLoss');
-    const totalAssets = getLatestValue('Assets');
-    const totalLiabilities = getLatestValue('Liabilities');
-    const grossProfit = getLatestValue('GrossProfit');
-    const operatingIncome = getLatestValue('OperatingIncomeLoss');
-
-    if (!revenue && !netIncome && !totalAssets) {
-      return null;
-    }
-
-    return {
-      source: 'SEC EDGAR (XBRL)',
-      sourceUrl: `https://www.sec.gov/cgi-bin/browse-edgar?action=getcompany&CIK=${cik}&type=10-K`,
-      verified: true,
-      period: 'Latest Annual Filing (10-K)',
-      currency: 'USD',
-      metrics: {
-        revenue,
-        netIncome,
-        totalAssets,
-        totalLiabilities,
-        grossProfit,
-        operatingIncome,
-      },
-    };
-  } catch {
-    return null;
+  } catch (e) {
+    console.error('[Financials] SEC search error:', e);
+    return { found: false, filings: [] };
   }
 }
 
 interface UKResult {
   found: boolean;
   companyNumber?: string;
-  records: FinancialRecord[];
   filings: Array<{ name: string; url: string; date: string }>;
 }
 
 async function checkCompaniesHouse(companyName: string): Promise<UKResult> {
-  // Companies House search (basic search without API key)
-  // Note: For full access, user would need to register for free API key
-  const searchUrl = `https://find-and-update.company-information.service.gov.uk/search?q=${encodeURIComponent(companyName)}`;
-
-  // For now, we'll use Serper to find Companies House filings
   if (!SERPER_API_KEY) {
-    return { found: false, records: [], filings: [] };
+    return { found: false, filings: [] };
   }
 
   try {
@@ -295,12 +249,11 @@ async function checkCompaniesHouse(companyName: string): Promise<UKResult> {
     let companyNumber: string | undefined;
 
     for (const result of results) {
-      // Extract company number from URL if possible
       const match = result.link?.match(/\/company\/([A-Z0-9]+)/);
       if (match) {
         companyNumber = match[1];
         filings.push({
-          name: 'Companies House Filing',
+          name: result.title || 'Companies House Filing',
           url: result.link,
           date: '',
         });
@@ -310,27 +263,24 @@ async function checkCompaniesHouse(companyName: string): Promise<UKResult> {
     return {
       found: filings.length > 0,
       companyNumber,
-      records: [],
       filings,
     };
   } catch {
-    return { found: false, records: [], filings: [] };
+    return { found: false, filings: [] };
   }
 }
 
 interface PublicFilingResult {
   found: boolean;
-  records: FinancialRecord[];
   filings: Array<{ name: string; url: string; date: string }>;
 }
 
 async function searchPublicFinancials(companyName: string): Promise<PublicFilingResult> {
   if (!SERPER_API_KEY) {
-    return { found: false, records: [], filings: [] };
+    return { found: false, filings: [] };
   }
 
   try {
-    // Search for verified financial disclosures
     const response = await fetch('https://google.serper.dev/search', {
       method: 'POST',
       headers: {
@@ -338,7 +288,7 @@ async function searchPublicFinancials(companyName: string): Promise<PublicFiling
         'Content-Type': 'application/json',
       },
       body: JSON.stringify({
-        q: `"${companyName}" (annual report OR financial statements OR revenue OR "total funding") filetype:pdf`,
+        q: `"${companyName}" (annual report OR investor relations OR financial statements)`,
         num: 10,
       }),
     });
@@ -353,8 +303,6 @@ async function searchPublicFinancials(companyName: string): Promise<PublicFiling
       'sec.gov',
       'companieshouse.gov.uk',
       'annualreports.com',
-      'crunchbase.com',
-      'pitchbook.com',
       '.gov',
       'investor',
       'ir.',
@@ -376,34 +324,9 @@ async function searchPublicFinancials(companyName: string): Promise<PublicFiling
 
     return {
       found: filings.length > 0,
-      records: [],
       filings: filings.slice(0, 5),
     };
   } catch {
-    return { found: false, records: [], filings: [] };
+    return { found: false, filings: [] };
   }
-}
-
-// Format currency for display
-export function formatCurrency(value: number | undefined, currency: string = 'USD'): string {
-  if (value === undefined) return 'N/A';
-
-  const formatter = new Intl.NumberFormat('en-US', {
-    style: 'currency',
-    currency,
-    notation: 'compact',
-    maximumFractionDigits: 1,
-  });
-
-  return formatter.format(value);
-}
-
-// Format number for display
-export function formatNumber(value: number | undefined): string {
-  if (value === undefined) return 'N/A';
-
-  return new Intl.NumberFormat('en-US', {
-    notation: 'compact',
-    maximumFractionDigits: 1,
-  }).format(value);
 }

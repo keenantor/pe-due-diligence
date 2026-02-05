@@ -1,18 +1,9 @@
 'use client';
 
-import { ExternalLink, FileText, DollarSign, TrendingUp, Building2, AlertCircle } from 'lucide-react';
+import { ExternalLink, FileText, DollarSign, TrendingUp, Building2, AlertCircle, CheckCircle2 } from 'lucide-react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
-import { FinancialData as FinancialDataType, formatCurrency } from '@/lib/scanner/collectors/financials';
-import {
-  BarChart,
-  Bar,
-  XAxis,
-  YAxis,
-  Tooltip,
-  ResponsiveContainer,
-  Cell,
-} from 'recharts';
+import { FinancialData as FinancialDataType } from '@/lib/scanner/collectors/financials';
 
 interface FinancialDataProps {
   data: FinancialDataType | undefined;
@@ -24,24 +15,28 @@ const sourceConfig = {
     badge: 'SEC EDGAR',
     color: 'text-[#6366F1]',
     borderColor: 'border-[#6366F1]/30',
+    bgColor: 'bg-[#6366F1]/10',
     description: 'Verified from U.S. Securities and Exchange Commission filings',
   },
   'Companies House': {
     badge: 'UK Companies House',
     color: 'text-[#8B5CF6]',
     borderColor: 'border-[#8B5CF6]/30',
+    bgColor: 'bg-[#8B5CF6]/10',
     description: 'Verified from UK Companies House registry',
   },
   'Public Filing': {
     badge: 'Public Filing',
     color: 'text-[#A78BFA]',
     borderColor: 'border-[#A78BFA]/30',
+    bgColor: 'bg-[#A78BFA]/10',
     description: 'From publicly available financial documents',
   },
   None: {
     badge: 'Not Available',
     color: 'text-[#71717A]',
     borderColor: 'border-[#71717A]/30',
+    bgColor: 'bg-[#71717A]/10',
     description: 'No verified public financial data found',
   },
 };
@@ -63,7 +58,6 @@ export function FinancialDataDisplay({ data, aiAnalysis }: FinancialDataProps) {
               <p className="text-sm text-[#A1A1AA]">No verified public financial records found</p>
               <p className="text-xs text-[#52525B] mt-1">
                 This company may be privately held or not required to file public financial statements.
-                Financial data is only displayed when verified from official sources (SEC, Companies House, etc.)
               </p>
             </div>
           </div>
@@ -73,24 +67,6 @@ export function FinancialDataDisplay({ data, aiAnalysis }: FinancialDataProps) {
   }
 
   const config = sourceConfig[data.source];
-  const latestRecord = data.records[0];
-
-  // Prepare chart data - use red for negative values
-  const chartData = latestRecord?.metrics
-    ? [
-        { name: 'Revenue', value: latestRecord.metrics.revenue, fill: (latestRecord.metrics.revenue ?? 0) < 0 ? '#F87171' : '#8B5CF6' },
-        { name: 'Gross Profit', value: latestRecord.metrics.grossProfit, fill: (latestRecord.metrics.grossProfit ?? 0) < 0 ? '#F87171' : '#A78BFA' },
-        { name: 'Operating Income', value: latestRecord.metrics.operatingIncome, fill: (latestRecord.metrics.operatingIncome ?? 0) < 0 ? '#F87171' : '#6366F1' },
-        { name: 'Net Income', value: latestRecord.metrics.netIncome, fill: (latestRecord.metrics.netIncome ?? 0) < 0 ? '#F87171' : '#818CF8' },
-      ].filter((d) => d.value !== undefined)
-    : [];
-
-  const balanceData = latestRecord?.metrics
-    ? [
-        { name: 'Total Assets', value: latestRecord.metrics.totalAssets, fill: '#8B5CF6' },
-        { name: 'Total Liabilities', value: latestRecord.metrics.totalLiabilities, fill: '#A78BFA' },
-      ].filter((d) => d.value !== undefined)
-    : [];
 
   return (
     <Card className="bg-[#0F0F14] border-[#27272A]">
@@ -100,39 +76,45 @@ export function FinancialDataDisplay({ data, aiAnalysis }: FinancialDataProps) {
             <DollarSign className="w-5 h-5 text-[#8B5CF6]" />
             Public Financial Data
           </CardTitle>
-          <div className="flex items-center gap-2">
-            <Badge variant="outline" className={`${config.color} ${config.borderColor}`}>
-              {config.badge}
-            </Badge>
-            {latestRecord?.verified && (
-              <Badge variant="outline" className="text-[#6B7280] border-[#6B7280]/30">
-                Verified
-              </Badge>
-            )}
-          </div>
+          <Badge variant="outline" className={`${config.color} ${config.borderColor}`}>
+            {config.badge}
+          </Badge>
         </div>
         <p className="text-xs text-[#52525B] mt-1">{config.description}</p>
       </CardHeader>
 
-      <CardContent className="space-y-6">
+      <CardContent className="space-y-4">
+        {/* Status Message */}
+        <div className={`flex items-start gap-3 p-4 rounded-lg ${config.bgColor}`}>
+          <CheckCircle2 className={`w-5 h-5 ${config.color} mt-0.5`} />
+          <div>
+            <p className={`text-sm font-medium ${config.color}`}>
+              {data.message}
+            </p>
+            <p className="text-xs text-[#A1A1AA] mt-1">
+              Click the links below to view official financial filings
+            </p>
+          </div>
+        </div>
+
         {/* Company Info */}
         <div className="flex flex-wrap gap-4 text-sm">
           {data.ticker && (
-            <div className="flex items-center gap-2">
+            <div className="flex items-center gap-2 px-3 py-2 rounded-lg bg-[#141419]">
               <TrendingUp className="w-4 h-4 text-[#71717A]" />
               <span className="text-[#71717A]">Ticker:</span>
-              <span className="text-[#F5F5F7] font-mono">{data.ticker}</span>
+              <span className="text-[#F5F5F7] font-mono font-semibold">{data.ticker}</span>
             </div>
           )}
           {data.cik && (
-            <div className="flex items-center gap-2">
+            <div className="flex items-center gap-2 px-3 py-2 rounded-lg bg-[#141419]">
               <Building2 className="w-4 h-4 text-[#71717A]" />
               <span className="text-[#71717A]">CIK:</span>
               <span className="text-[#F5F5F7] font-mono">{data.cik}</span>
             </div>
           )}
           {data.companyNumber && (
-            <div className="flex items-center gap-2">
+            <div className="flex items-center gap-2 px-3 py-2 rounded-lg bg-[#141419]">
               <Building2 className="w-4 h-4 text-[#71717A]" />
               <span className="text-[#71717A]">Company #:</span>
               <span className="text-[#F5F5F7] font-mono">{data.companyNumber}</span>
@@ -140,129 +122,9 @@ export function FinancialDataDisplay({ data, aiAnalysis }: FinancialDataProps) {
           )}
         </div>
 
-        {/* Financial Metrics */}
-        {latestRecord && latestRecord.metrics && (
-          <>
-            <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-              <MetricCard
-                label="Revenue"
-                value={latestRecord.metrics.revenue}
-                currency={latestRecord.currency}
-              />
-              <MetricCard
-                label="Net Income"
-                value={latestRecord.metrics.netIncome}
-                currency={latestRecord.currency}
-              />
-              <MetricCard
-                label="Total Assets"
-                value={latestRecord.metrics.totalAssets}
-                currency={latestRecord.currency}
-              />
-              <MetricCard
-                label="Employees"
-                value={latestRecord.metrics.employees}
-                isCount
-              />
-            </div>
-
-            {/* Income Chart */}
-            {chartData.length > 0 && (
-              <div className="pt-4">
-                <h4 className="text-sm font-medium text-[#A1A1AA] mb-4">Income Statement Metrics</h4>
-                <div className="h-48 w-full">
-                  <ResponsiveContainer width="100%" height="100%">
-                    <BarChart data={chartData} layout="vertical">
-                      <XAxis
-                        type="number"
-                        tickFormatter={(value) => formatCurrency(value, latestRecord.currency)}
-                        tick={{ fill: '#71717A', fontSize: 11 }}
-                        axisLine={{ stroke: '#27272A' }}
-                      />
-                      <YAxis
-                        type="category"
-                        dataKey="name"
-                        tick={{ fill: '#A1A1AA', fontSize: 12 }}
-                        axisLine={{ stroke: '#27272A' }}
-                        width={110}
-                      />
-                      <Tooltip
-                        formatter={(value) => {
-                          const num = value as number;
-                          const formatted = formatCurrency(num, latestRecord.currency);
-                          return [num < 0 ? `${formatted} (Loss)` : formatted, ''];
-                        }}
-                        contentStyle={{
-                          backgroundColor: '#141419',
-                          border: '1px solid #27272A',
-                          borderRadius: '8px',
-                        }}
-                        labelStyle={{ color: '#F5F5F7' }}
-                      />
-                      <Bar dataKey="value" radius={[0, 4, 4, 0]}>
-                        {chartData.map((entry, index) => (
-                          <Cell key={`cell-${index}`} fill={entry.fill} />
-                        ))}
-                      </Bar>
-                    </BarChart>
-                  </ResponsiveContainer>
-                </div>
-              </div>
-            )}
-
-            {/* Balance Sheet Chart */}
-            {balanceData.length > 0 && (
-              <div className="pt-4">
-                <h4 className="text-sm font-medium text-[#A1A1AA] mb-4">Balance Sheet Overview</h4>
-                <div className="h-32 w-full">
-                  <ResponsiveContainer width="100%" height="100%">
-                    <BarChart data={balanceData} layout="vertical">
-                      <XAxis
-                        type="number"
-                        tickFormatter={(value) => formatCurrency(value, latestRecord.currency)}
-                        tick={{ fill: '#71717A', fontSize: 11 }}
-                        axisLine={{ stroke: '#27272A' }}
-                      />
-                      <YAxis
-                        type="category"
-                        dataKey="name"
-                        tick={{ fill: '#A1A1AA', fontSize: 12 }}
-                        axisLine={{ stroke: '#27272A' }}
-                        width={110}
-                      />
-                      <Tooltip
-                        formatter={(value) => {
-                          const num = value as number;
-                          const formatted = formatCurrency(num, latestRecord.currency);
-                          return [num < 0 ? `${formatted} (Loss)` : formatted, ''];
-                        }}
-                        contentStyle={{
-                          backgroundColor: '#141419',
-                          border: '1px solid #27272A',
-                          borderRadius: '8px',
-                        }}
-                        labelStyle={{ color: '#F5F5F7' }}
-                      />
-                      <Bar dataKey="value" radius={[0, 4, 4, 0]}>
-                        {balanceData.map((entry, index) => (
-                          <Cell key={`cell-${index}`} fill={entry.fill} />
-                        ))}
-                      </Bar>
-                    </BarChart>
-                  </ResponsiveContainer>
-                </div>
-              </div>
-            )}
-
-            <p className="text-xs text-[#52525B]">
-              Period: {latestRecord.period} • Source: {latestRecord.source}
-            </p>
-          </>
-        )}
-
         {/* Filing Links */}
         {data.filingLinks.length > 0 && (
-          <div className="pt-4 border-t border-[#27272A]">
+          <div className="pt-2">
             <h4 className="text-sm font-medium text-[#A1A1AA] mb-3">Official Filings</h4>
             <div className="space-y-2">
               {data.filingLinks.slice(0, 5).map((filing, index) => (
@@ -271,16 +133,18 @@ export function FinancialDataDisplay({ data, aiAnalysis }: FinancialDataProps) {
                   href={filing.url}
                   target="_blank"
                   rel="noopener noreferrer"
-                  className="flex items-center gap-2 p-2 rounded hover:bg-[#141419] transition-colors group"
+                  className="flex items-center gap-3 p-3 rounded-lg bg-[#141419] hover:bg-[#1A1A21] transition-colors group border border-transparent hover:border-[#27272A]"
                 >
-                  <FileText className="w-4 h-4 text-[#71717A]" />
-                  <span className="text-sm text-[#A1A1AA] group-hover:text-[#F5F5F7] flex-1 truncate">
-                    {filing.name}
-                  </span>
-                  {filing.date && (
-                    <span className="text-xs text-[#52525B]">{filing.date}</span>
-                  )}
-                  <ExternalLink className="w-3 h-3 text-[#52525B] group-hover:text-[#8B5CF6]" />
+                  <FileText className="w-5 h-5 text-[#8B5CF6]" />
+                  <div className="flex-1 min-w-0">
+                    <span className="text-sm text-[#F5F5F7] group-hover:text-white block truncate">
+                      {filing.name}
+                    </span>
+                    {filing.date && (
+                      <span className="text-xs text-[#52525B]">{filing.date}</span>
+                    )}
+                  </div>
+                  <ExternalLink className="w-4 h-4 text-[#52525B] group-hover:text-[#8B5CF6] flex-shrink-0" />
                 </a>
               ))}
             </div>
@@ -290,8 +154,8 @@ export function FinancialDataDisplay({ data, aiAnalysis }: FinancialDataProps) {
         {/* AI Analysis */}
         {aiAnalysis && (
           <div className="pt-4 border-t border-[#27272A]">
-            <h4 className="text-sm font-medium text-[#A1A1AA] mb-3">AI Financial Analysis</h4>
-            <div className="text-sm text-[#A1A1AA] leading-relaxed whitespace-pre-line">
+            <h4 className="text-sm font-medium text-[#A1A1AA] mb-3">AI Analysis</h4>
+            <div className="text-sm text-[#A1A1AA] leading-relaxed whitespace-pre-line bg-[#141419] p-4 rounded-lg">
               {aiAnalysis}
             </div>
           </div>
@@ -300,45 +164,11 @@ export function FinancialDataDisplay({ data, aiAnalysis }: FinancialDataProps) {
         {/* Disclaimer */}
         <div className="pt-4 border-t border-[#27272A]">
           <p className="text-xs text-[#52525B]">
-            Financial data is sourced from official public filings only. This information is provided for
-            informational purposes and should be independently verified. Past performance does not guarantee
-            future results.
+            We provide links to official filings only. Please verify all financial data directly from the source.
+            This tool does not extract or display specific financial figures to ensure accuracy.
           </p>
         </div>
       </CardContent>
     </Card>
-  );
-}
-
-function MetricCard({
-  label,
-  value,
-  currency = 'USD',
-  isCount = false,
-}: {
-  label: string;
-  value: number | undefined;
-  currency?: string;
-  isCount?: boolean;
-}) {
-  const isNegative = value !== undefined && value < 0;
-  const displayValue = value !== undefined
-    ? isCount
-      ? new Intl.NumberFormat('en-US').format(value)
-      : formatCurrency(value, currency)
-    : 'N/A';
-
-  return (
-    <div className="p-3 rounded-lg bg-[#141419]">
-      <p className="text-xs text-[#52525B] mb-1">{label}</p>
-      <div className="flex items-baseline gap-1.5">
-        <p className={`text-lg font-semibold font-mono ${isNegative ? 'text-[#F87171]' : 'text-[#F5F5F7]'}`}>
-          {displayValue}
-        </p>
-        {isNegative && !isCount && (
-          <span className="text-xs text-[#F87171]/70">(Loss)</span>
-        )}
-      </div>
-    </div>
   );
 }
