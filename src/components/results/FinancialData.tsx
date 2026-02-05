@@ -29,11 +29,11 @@ function formatCurrency(value: number, currency: string = 'USD'): string {
 
 const sourceConfig = {
   SEC: {
-    badge: 'SEC EDGAR',
-    color: 'text-[#6366F1]',
-    borderColor: 'border-[#6366F1]/30',
-    bgColor: 'bg-[#6366F1]/10',
-    description: 'Verified from U.S. Securities and Exchange Commission filings',
+    badge: 'Verified Data',
+    color: 'text-[#22C55E]',
+    borderColor: 'border-[#22C55E]/30',
+    bgColor: 'bg-[#22C55E]/10',
+    description: 'Financial data verified from SEC filings via Financial Modeling Prep',
   },
   'Companies House': {
     badge: 'UK Companies House',

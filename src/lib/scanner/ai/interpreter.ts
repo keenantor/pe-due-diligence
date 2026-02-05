@@ -116,23 +116,30 @@ Please provide a comprehensive pre-diligence interpretation following the struct
 `.trim();
 }
 
-const FINANCIAL_ANALYSIS_PROMPT = `You are a senior financial analyst specializing in Private Equity due diligence. Based on the information that public financial filings exist for this company, provide brief guidance.
+const FINANCIAL_ANALYSIS_PROMPT = `You are a senior financial analyst specializing in Private Equity due diligence. Analyze the provided financial metrics and give insights.
 
 Your analysis should include:
 
-## Filing Availability
-Confirm what type of filings are available and what this means.
+## Financial Overview
+Summarize the key financial metrics provided. Comment on the scale of the business.
 
-## What These Filings Typically Contain
-Brief overview of what information can be found in these filings.
+## Profitability Analysis
+Analyze margins (gross margin, operating margin, net margin) based on the numbers provided.
+
+## Balance Sheet Strength
+Comment on assets, liabilities, and equity position if available.
+
+## Key Observations
+2-3 bullet points on notable aspects of the financials (positive or concerning).
 
 ## Due Diligence Recommendations
-Key financial metrics to look for when reviewing the filings.
+What additional financial information should be verified during full diligence.
 
 Guidelines:
-- Be concise - this is just guidance on where to look
-- Do NOT make up or estimate any financial numbers
-- Direct the user to review the actual filings for specific data
+- Use the ACTUAL numbers provided - do not make up data
+- Calculate margins and ratios from the provided metrics
+- Be analytical and specific, not generic
+- Keep it concise (under 400 words)
 - Do NOT make investment recommendations`;
 
 export async function generateFinancialAnalysis(
@@ -151,20 +158,31 @@ export async function generateFinancialAnalysis(
   try {
     const client = new Mistral({ apiKey: MISTRAL_API_KEY });
 
+    const metrics = financialData.metrics;
+    const formatNum = (n: number) => {
+      if (n >= 1e9) return `$${(n / 1e9).toFixed(2)}B`;
+      if (n >= 1e6) return `$${(n / 1e6).toFixed(2)}M`;
+      return `$${n.toLocaleString()}`;
+    };
+
     const prompt = `
 Company: ${companyName}
-Filing Source: ${financialData.source}
+Stock Ticker: ${financialData.ticker || 'N/A'}
 Company Type: ${financialData.companyType}
-${financialData.ticker ? `Stock Ticker: ${financialData.ticker}` : ''}
-${financialData.cik ? `SEC CIK: ${financialData.cik}` : ''}
-${financialData.companyNumber ? `UK Company Number: ${financialData.companyNumber}` : ''}
+Data Source: Financial Modeling Prep (verified SEC filings)
+Fiscal Year: ${metrics?.fiscalYear || 'Latest'}
 
-Message: ${financialData.message}
+FINANCIAL METRICS:
+${metrics?.revenue ? `Revenue: ${formatNum(metrics.revenue)}` : ''}
+${metrics?.grossProfit ? `Gross Profit: ${formatNum(metrics.grossProfit)}` : ''}
+${metrics?.operatingIncome ? `Operating Income: ${formatNum(metrics.operatingIncome)}` : ''}
+${metrics?.netIncome ? `Net Income: ${formatNum(metrics.netIncome)}` : ''}
+${metrics?.totalAssets ? `Total Assets: ${formatNum(metrics.totalAssets)}` : ''}
+${metrics?.totalLiabilities ? `Total Liabilities: ${formatNum(metrics.totalLiabilities)}` : ''}
+${metrics?.totalEquity ? `Shareholders' Equity: ${formatNum(metrics.totalEquity)}` : ''}
+${metrics?.eps ? `EPS: $${metrics.eps.toFixed(2)}` : ''}
 
-Available Filings:
-${financialData.filingLinks.slice(0, 3).map(f => `- ${f.name}`).join('\n')}
-
-Please provide brief guidance on what to look for in these filings.
+Please analyze these financial metrics and provide insights.
 `.trim();
 
     const response = await client.chat.complete({
