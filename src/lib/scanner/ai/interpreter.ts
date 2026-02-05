@@ -1,6 +1,5 @@
 import { Mistral } from '@mistralai/mistralai';
 import { ScanResult, FinancialData } from '../types';
-import { formatCurrency } from '../collectors/financials';
 
 const MISTRAL_API_KEY = process.env.MISTRAL_API_KEY;
 
@@ -77,8 +76,6 @@ export async function generateAIInterpretation(
 }
 
 function formatScanResultForAI(result: ScanResult): string {
-  const foundSignals = result.signals.filter((s) => s.found);
-  const missingSignals = result.signals.filter((s) => !s.found);
   const appliedPenalties = result.penalties.filter((p) => p.applied);
 
   // Group signals by category for better context
@@ -119,35 +116,24 @@ Please provide a comprehensive pre-diligence interpretation following the struct
 `.trim();
 }
 
-const FINANCIAL_ANALYSIS_PROMPT = `You are a senior financial analyst specializing in Private Equity due diligence. Analyze the following verified public financial data and provide insights.
+const FINANCIAL_ANALYSIS_PROMPT = `You are a senior financial analyst specializing in Private Equity due diligence. Based on the information that public financial filings exist for this company, provide brief guidance.
 
 Your analysis should include:
 
-## Financial Overview
-Brief summary of the company's financial position based on the available data.
+## Filing Availability
+Confirm what type of filings are available and what this means.
 
-## Key Metrics Analysis
-- Revenue analysis (if available): growth implications, scale
-- Profitability assessment: margins, net income trends
-- Balance sheet strength: asset base, leverage indicators
-
-## Financial Health Indicators
-- Positive indicators based on the data
-- Areas of potential concern
-- Metrics that need deeper investigation
-
-## Comparable Context
-How do these metrics compare to typical companies in this space? (provide general industry context)
+## What These Filings Typically Contain
+Brief overview of what information can be found in these filings.
 
 ## Due Diligence Recommendations
-Specific financial areas that require further investigation during full diligence.
+Key financial metrics to look for when reviewing the filings.
 
 Guidelines:
-- Only analyze the data provided - do not invent numbers
-- Clearly state when making inferences vs. reporting facts
-- Use professional financial terminology
-- Do NOT make investment recommendations
-- If data is limited, acknowledge this and focus on what IS available`;
+- Be concise - this is just guidance on where to look
+- Do NOT make up or estimate any financial numbers
+- Direct the user to review the actual filings for specific data
+- Do NOT make investment recommendations`;
 
 export async function generateFinancialAnalysis(
   financialData: FinancialData,
@@ -158,14 +144,28 @@ export async function generateFinancialAnalysis(
     return null;
   }
 
-  if (!financialData.available || financialData.records.length === 0) {
+  if (!financialData.available) {
     return null;
   }
 
   try {
     const client = new Mistral({ apiKey: MISTRAL_API_KEY });
 
-    const prompt = formatFinancialDataForAI(financialData, companyName);
+    const prompt = `
+Company: ${companyName}
+Filing Source: ${financialData.source}
+Company Type: ${financialData.companyType}
+${financialData.ticker ? `Stock Ticker: ${financialData.ticker}` : ''}
+${financialData.cik ? `SEC CIK: ${financialData.cik}` : ''}
+${financialData.companyNumber ? `UK Company Number: ${financialData.companyNumber}` : ''}
+
+Message: ${financialData.message}
+
+Available Filings:
+${financialData.filingLinks.slice(0, 3).map(f => `- ${f.name}`).join('\n')}
+
+Please provide brief guidance on what to look for in these filings.
+`.trim();
 
     const response = await client.chat.complete({
       model: 'mistral-small-latest',
@@ -173,7 +173,7 @@ export async function generateFinancialAnalysis(
         { role: 'system', content: FINANCIAL_ANALYSIS_PROMPT },
         { role: 'user', content: prompt },
       ],
-      maxTokens: 1200,
+      maxTokens: 600,
       temperature: 0.3,
     });
 
@@ -183,48 +183,4 @@ export async function generateFinancialAnalysis(
     console.error('Mistral financial analysis error:', error);
     return null;
   }
-}
-
-function formatFinancialDataForAI(data: FinancialData, companyName: string): string {
-  const record = data.records[0];
-
-  let metricsText = 'No detailed metrics available.';
-
-  if (record?.metrics) {
-    const m = record.metrics;
-    const currency = record.currency || 'USD';
-
-    const metricLines: string[] = [];
-    if (m.revenue !== undefined) metricLines.push(`Revenue: ${formatCurrency(m.revenue, currency)}`);
-    if (m.grossProfit !== undefined) metricLines.push(`Gross Profit: ${formatCurrency(m.grossProfit, currency)}`);
-    if (m.operatingIncome !== undefined) metricLines.push(`Operating Income: ${formatCurrency(m.operatingIncome, currency)}`);
-    if (m.netIncome !== undefined) metricLines.push(`Net Income: ${formatCurrency(m.netIncome, currency)}`);
-    if (m.ebitda !== undefined) metricLines.push(`EBITDA: ${formatCurrency(m.ebitda, currency)}`);
-    if (m.totalAssets !== undefined) metricLines.push(`Total Assets: ${formatCurrency(m.totalAssets, currency)}`);
-    if (m.totalLiabilities !== undefined) metricLines.push(`Total Liabilities: ${formatCurrency(m.totalLiabilities, currency)}`);
-    if (m.employees !== undefined) metricLines.push(`Employees: ${m.employees.toLocaleString()}`);
-
-    if (metricLines.length > 0) {
-      metricsText = metricLines.join('\n');
-    }
-  }
-
-  return `
-VERIFIED PUBLIC FINANCIAL DATA
-==============================
-Company: ${companyName}
-Data Source: ${data.source} (${record?.verified ? 'Verified' : 'Unverified'})
-Company Type: ${data.companyType}
-${data.ticker ? `Stock Ticker: ${data.ticker}` : ''}
-${data.cik ? `SEC CIK: ${data.cik}` : ''}
-${data.companyNumber ? `UK Company Number: ${data.companyNumber}` : ''}
-
-Reporting Period: ${record?.period || 'Unknown'}
-Data Source URL: ${record?.sourceUrl || 'N/A'}
-
-FINANCIAL METRICS:
-${metricsText}
-
-Please provide a professional financial analysis based on this verified data.
-`.trim();
 }
