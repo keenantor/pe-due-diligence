@@ -21,7 +21,7 @@ export function ScanProgress({ progress, currentStep }: ScanProgressProps) {
   const [activeStep, setActiveStep] = useState(0);
   const [completedSteps, setCompletedSteps] = useState<number[]>([]);
   const [dotCount, setDotCount] = useState(1);
-  const [displayProgress, setDisplayProgress] = useState(progress || 10);
+  const [displayProgress, setDisplayProgress] = useState(() => Math.max(progress || 0, 5));
 
   useEffect(() => {
     const stepTimer = setInterval(() => {
@@ -40,8 +40,9 @@ export function ScanProgress({ progress, currentStep }: ScanProgressProps) {
     // Animate the progress percentage smoothly
     const progressTimer = setInterval(() => {
       setDisplayProgress((prev) => {
-        if (prev >= 95) return prev; // Cap at 95% until complete
-        return prev + Math.random() * 3 + 1; // Random increment between 1-4%
+        const current = typeof prev === 'number' && Number.isFinite(prev) ? prev : 5;
+        if (current >= 95) return current; // Cap at 95% until complete
+        return current + Math.random() * 3 + 1; // Random increment between 1-4%
       });
     }, 800);
 
@@ -53,7 +54,7 @@ export function ScanProgress({ progress, currentStep }: ScanProgressProps) {
   }, []);
 
   const dots = '.'.repeat(dotCount);
-  const progressPercent = Math.min(95, Math.round(displayProgress));
+  const progressPercent = Math.min(95, Math.round(displayProgress || 0)) || 0;
 
   return (
     <div className="w-full max-w-lg mx-auto space-y-8 p-4">
@@ -73,7 +74,7 @@ export function ScanProgress({ progress, currentStep }: ScanProgressProps) {
       <div className="space-y-2">
         <div className="flex justify-between items-center">
           <span className="text-sm text-gray-400">Progress</span>
-          <span className="text-2xl font-bold text-white tabular-nums">{progressPercent}%</span>
+          <span className="text-2xl font-bold text-white tabular-nums">{Number.isFinite(progressPercent) ? progressPercent : 0}%</span>
         </div>
         <div className="relative h-3 bg-gray-800 rounded-full overflow-hidden">
           <div
