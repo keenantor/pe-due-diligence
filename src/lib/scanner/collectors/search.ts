@@ -2,6 +2,9 @@ import { Signal, CollectorResult, CollectorContext } from '../types';
 
 const SERPER_API_KEY = process.env.SERPER_API_KEY;
 
+// Add delay for more reliable API responses
+const delay = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
+
 export async function collectSearchSignals(
   context: CollectorContext
 ): Promise<CollectorResult> {
@@ -11,143 +14,106 @@ export async function collectSearchSignals(
   const metadata: Record<string, unknown> = {};
   const errors: CollectorResult['errors'] = [];
 
-  // If Serper API key is available, use it
-  if (SERPER_API_KEY) {
+  const searchQuery = companyName || domain || '';
+  let totalResults = 0;
+  let thirdPartyCount = 0;
+  let newsCount = 0;
+  let apiAvailable = !!SERPER_API_KEY;
+
+  if (SERPER_API_KEY && searchQuery) {
     try {
-      const results = await searchWithSerper(companyName || domain, domain);
+      // Search 1: General search for company mentions
+      console.log(`[Search] Searching for: "${searchQuery}"`);
 
-      // Third-party mentions
-      signals.push({
-        id: 'third_party_mentions',
-        name: 'Third-Party Mentions',
-        description: '3+ mentions excluding company domain',
-        found: results.thirdPartyCount >= 3,
-        value: `${results.thirdPartyCount} mentions found`,
-        source: 'Search engine API',
-        category: 'validation',
-        points: results.thirdPartyCount >= 3 ? 6 : 0,
-        maxPoints: 6,
+      const generalResponse = await fetch('https://google.serper.dev/search', {
+        method: 'POST',
+        headers: {
+          'X-API-KEY': SERPER_API_KEY,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          q: `"${searchQuery}"`,
+          num: 30,
+        }),
       });
 
-      // News coverage
-      signals.push({
-        id: 'news_coverage',
-        name: 'News/Press Coverage',
-        description: 'News articles mentioning company',
-        found: results.newsCount > 0,
-        value: results.newsCount > 0 ? `${results.newsCount} articles` : undefined,
-        source: 'News search',
-        category: 'validation',
-        points: results.newsCount > 0 ? 5 : 0,
-        maxPoints: 5,
+      if (generalResponse.ok) {
+        const data = await generalResponse.json();
+        const results = data.organic || [];
+        totalResults = results.length;
+
+        console.log(`[Search] Got ${totalResults} general results`);
+
+        // Count third-party mentions (not from company's own domain)
+        if (domain) {
+          thirdPartyCount = results.filter(
+            (r: { link: string }) => !r.link.toLowerCase().includes(domain.toLowerCase())
+          ).length;
+          console.log(`[Search] Third-party mentions: ${thirdPartyCount}`);
+        } else {
+          thirdPartyCount = totalResults;
+        }
+
+        metadata.searchResults = results.slice(0, 10).map((r: { title: string; link: string }) => ({
+          title: r.title,
+          url: r.link,
+        }));
+      }
+
+      // Wait before next request
+      await delay(500);
+
+      // Search 2: News search
+      console.log(`[Search] Searching news for: "${searchQuery}"`);
+
+      const newsResponse = await fetch('https://google.serper.dev/news', {
+        method: 'POST',
+        headers: {
+          'X-API-KEY': SERPER_API_KEY,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          q: `"${searchQuery}"`,
+          num: 10,
+        }),
       });
 
-      // Search presence
-      signals.push({
-        id: 'search_presence',
-        name: 'Strong Search Presence',
-        description: '10+ search results for company name',
-        found: results.totalResults >= 10,
-        value: `${results.totalResults} results`,
-        source: 'Search engine API',
-        category: 'validation',
-        points: results.totalResults >= 10 ? 5 : 0,
-        maxPoints: 5,
-      });
+      if (newsResponse.ok) {
+        const newsData = await newsResponse.json();
+        const newsResults = newsData.news || [];
+        newsCount = newsResults.length;
 
-      metadata.searchResults = results;
+        console.log(`[Search] Got ${newsCount} news results`);
+
+        if (newsCount > 0) {
+          metadata.newsArticles = newsResults.slice(0, 5).map((r: { title: string; link: string; date?: string }) => ({
+            title: r.title,
+            url: r.link,
+            date: r.date,
+          }));
+        }
+      }
+
     } catch (e) {
+      console.error(`[Search] Error:`, e);
       errors.push({
-        code: 'SERPER_ERROR',
-        message: `Search API error: ${e}`,
+        code: 'SEARCH_ERROR',
+        message: `Search failed: ${e instanceof Error ? e.message : String(e)}`,
         recoverable: true,
       });
-      // Fall through to basic checks
-      addBasicSearchSignals(signals, companyName || domain);
     }
-  } else {
-    // Basic search detection without API
-    addBasicSearchSignals(signals, companyName || domain);
   }
 
-  return {
-    signals,
-    metadata,
-    errors,
-    duration: Date.now() - startTime,
-  };
-}
-
-interface SerperResults {
-  totalResults: number;
-  thirdPartyCount: number;
-  newsCount: number;
-}
-
-async function searchWithSerper(
-  query: string,
-  excludeDomain: string
-): Promise<SerperResults> {
-  // Run searches in PARALLEL - reduced to 2 calls for speed
-  const [generalResponse, newsResponse] = await Promise.all([
-    // General search (we'll filter third-party client-side)
-    fetch('https://google.serper.dev/search', {
-      method: 'POST',
-      headers: {
-        'X-API-KEY': SERPER_API_KEY!,
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify({
-        q: `"${query}"`,
-        num: 30,
-      }),
-    }),
-    // News search
-    fetch('https://google.serper.dev/news', {
-      method: 'POST',
-      headers: {
-        'X-API-KEY': SERPER_API_KEY!,
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify({
-        q: `"${query}"`,
-        num: 10,
-      }),
-    }),
-  ]);
-
-  const [generalData, newsData] = await Promise.all([
-    generalResponse.json(),
-    newsResponse.json(),
-  ]);
-
-  const allResults = generalData.organic || [];
-
-  // Filter out company's own domain for third-party count
-  const thirdPartyResults = allResults.filter(
-    (r: { link: string }) => !r.link.toLowerCase().includes(excludeDomain.toLowerCase())
-  );
-
-  return {
-    totalResults: allResults.length,
-    thirdPartyCount: thirdPartyResults.length,
-    newsCount: newsData.news?.length || 0,
-  };
-}
-
-function addBasicSearchSignals(signals: Signal[], companyName: string): void {
-  // Without API, we can't accurately measure these, so mark as unknown
-  // but don't penalize the score heavily
-
+  // Build signals
   signals.push({
     id: 'third_party_mentions',
     name: 'Third-Party Mentions',
     description: '3+ mentions excluding company domain',
-    found: false,
-    value: 'API key required for accurate detection',
+    found: thirdPartyCount >= 3,
+    value: apiAvailable ? `${thirdPartyCount} mentions found` : 'API key required',
     source: 'Search engine API',
     category: 'validation',
-    points: 0,
+    points: thirdPartyCount >= 3 ? 6 : 0,
     maxPoints: 6,
   });
 
@@ -155,11 +121,11 @@ function addBasicSearchSignals(signals: Signal[], companyName: string): void {
     id: 'news_coverage',
     name: 'News/Press Coverage',
     description: 'News articles mentioning company',
-    found: false,
-    value: 'API key required for accurate detection',
+    found: newsCount > 0,
+    value: apiAvailable ? (newsCount > 0 ? `${newsCount} articles` : 'No coverage found') : 'API key required',
     source: 'News search',
     category: 'validation',
-    points: 0,
+    points: newsCount > 0 ? 5 : 0,
     maxPoints: 5,
   });
 
@@ -167,11 +133,20 @@ function addBasicSearchSignals(signals: Signal[], companyName: string): void {
     id: 'search_presence',
     name: 'Strong Search Presence',
     description: '10+ search results for company name',
-    found: false,
-    value: 'API key required for accurate detection',
+    found: totalResults >= 10,
+    value: apiAvailable ? `${totalResults} results` : 'API key required',
     source: 'Search engine API',
     category: 'validation',
-    points: 0,
+    points: totalResults >= 10 ? 5 : 0,
     maxPoints: 5,
   });
+
+  console.log(`[Search] Complete - total: ${totalResults}, thirdParty: ${thirdPartyCount}, news: ${newsCount}`);
+
+  return {
+    signals,
+    metadata,
+    errors,
+    duration: Date.now() - startTime,
+  };
 }

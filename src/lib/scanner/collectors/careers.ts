@@ -2,13 +2,8 @@ import { Signal, CollectorResult, CollectorContext } from '../types';
 
 const SERPER_API_KEY = process.env.SERPER_API_KEY;
 
-// Debug logging for Vercel
-const DEBUG = true;
-function debugLog(message: string, data?: unknown) {
-  if (DEBUG) {
-    console.log(`[Careers Collector] ${message}`, data ? JSON.stringify(data, null, 2) : '');
-  }
-}
+// Add delay for more reliable API responses
+const delay = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
 
 export async function collectCareersSignals(
   context: CollectorContext
@@ -19,24 +14,16 @@ export async function collectCareersSignals(
   const metadata: Record<string, unknown> = {};
   const errors: CollectorResult['errors'] = [];
 
-  const searchQuery = companyName || domain;
-  const domainName = domain?.replace(/\.(com|io|co|org|net|ai)$/, '') || '';
+  const searchQuery = companyName || domain || '';
   let activeJobsFound = false;
   let jobCount = 0;
   let apiAvailable = !!SERPER_API_KEY;
-  let searchSucceeded = false;
 
-  debugLog('Starting careers collection', {
-    companyName,
-    domain,
-    searchQuery,
-    apiKeyPresent: !!SERPER_API_KEY
-  });
-
-  if (SERPER_API_KEY) {
+  if (SERPER_API_KEY && searchQuery) {
     try {
-      // Single consolidated search for job listings across all major boards
-      debugLog('Searching for jobs (single query)');
+      // Search for job listings
+      console.log(`[Careers] Searching for jobs at: "${searchQuery}"`);
+
       const jobResponse = await fetch('https://google.serper.dev/search', {
         method: 'POST',
         headers: {
@@ -44,119 +31,83 @@ export async function collectCareersSignals(
           'Content-Type': 'application/json',
         },
         body: JSON.stringify({
-          q: `"${searchQuery}" jobs (site:linkedin.com OR site:indeed.com OR site:glassdoor.com OR site:lever.co OR site:greenhouse.io)`,
+          q: `${searchQuery} jobs careers hiring`,
           num: 20,
         }),
       });
 
-      if (!jobResponse.ok) {
-        throw new Error(`Serper API returned ${jobResponse.status}`);
+      if (jobResponse.ok) {
+        const jobData = await jobResponse.json();
+        const results = jobData.organic || [];
+
+        console.log(`[Careers] Got ${results.length} results`);
+
+        // Look for job board results
+        const jobBoardDomains = [
+          'linkedin.com/jobs',
+          'linkedin.com/company',
+          'indeed.com',
+          'glassdoor.com',
+          'lever.co',
+          'greenhouse.io',
+          'workday.com',
+          'smartrecruiters.com',
+          'careers.',
+          '/careers',
+          '/jobs',
+        ];
+
+        const jobListings: { title: string; url: string }[] = [];
+
+        for (const result of results) {
+          const link = (result.link || '').toLowerCase();
+          const title = result.title || '';
+
+          // Check if it's from a job-related site
+          const isJobSite = jobBoardDomains.some(d => link.includes(d));
+
+          if (isJobSite) {
+            jobListings.push({ title, url: result.link });
+          }
+        }
+
+        if (jobListings.length > 0) {
+          activeJobsFound = true;
+          jobCount = jobListings.length;
+          metadata.jobListings = jobListings.slice(0, 10);
+          console.log(`[Careers] FOUND ${jobCount} job listings`);
+        }
       }
 
-      const jobData = await jobResponse.json();
-      const jobResults = jobData.organic || [];
-      searchSucceeded = true;
+      // Wait before potential additional requests
+      await delay(300);
 
-      // Valid job board domains - be more inclusive
-      const validJobSites = [
-        'linkedin.com/jobs',
-        'linkedin.com/company',
-        'indeed.com',
-        'glassdoor.com',
-        'lever.co',
-        'greenhouse.io',
-        'workday.com',
-        'smartrecruiters.com',
-        'jobvite.com',
-        'icims.com',
-        'myworkdayjobs.com',
-        '/careers',
-        '/jobs',
-        '/career',
-        '/job',
-      ];
-
-      // Filter for job-related results - be less restrictive on title matching
-      const jobListings = jobResults.filter((r: { link: string; title: string; snippet?: string }) => {
-        const link = r.link.toLowerCase();
-        const title = (r.title || '').toLowerCase();
-        const snippet = (r.snippet || '').toLowerCase();
-        const query = searchQuery.toLowerCase();
-        const domainLower = domainName.toLowerCase();
-
-        // Check if it's from a valid job site or company careers page
-        const isJobSite = validJobSites.some((site) => link.includes(site));
-
-        // Check if result mentions the company
-        const mentionsCompany =
-          title.includes(query) ||
-          title.includes(domainLower) ||
-          snippet.includes(query) ||
-          snippet.includes(domainLower);
-
-        return isJobSite && mentionsCompany;
-      });
-
-      // Remove duplicates based on URL
-      const uniqueListings = jobListings.filter(
-        (r: { link: string }, index: number, self: { link: string }[]) =>
-          index === self.findIndex((t) => t.link === r.link)
-      );
-
-      activeJobsFound = uniqueListings.length > 0;
-      jobCount = uniqueListings.length;
-
-      debugLog('Job search results', {
-        totalResults: jobResults.length,
-        filteredCount: jobListings.length,
-        uniqueCount: uniqueListings.length,
-        sampleListings: uniqueListings.slice(0, 3).map((r: { title: string; link: string }) => ({
-          title: r.title,
-          link: r.link
-        }))
-      });
-
-      if (activeJobsFound) {
-        metadata.jobListings = uniqueListings.slice(0, 10).map(
-          (r: { title: string; link: string }) => ({
-            title: r.title,
-            url: r.link,
-          })
-        );
-      }
     } catch (e) {
+      console.error(`[Careers] Error:`, e);
       errors.push({
         code: 'JOBS_SEARCH_ERROR',
         message: `Job search failed: ${e instanceof Error ? e.message : String(e)}`,
         recoverable: true,
       });
-      searchSucceeded = false;
     }
-  } else {
-    debugLog('SERPER_API_KEY not available - cannot search for jobs');
   }
 
-  debugLog('Final results', { activeJobsFound, jobCount, searchSucceeded, apiAvailable });
-
-  // Determine status message
-  const getStatusMessage = () => {
-    if (!apiAvailable) return 'Unable to verify (API key not configured)';
-    if (!searchSucceeded) return 'Unable to verify (search failed)';
-    return 'No listings found in search results';
-  };
-
-  // Active job listings signal
+  // Build signal
   signals.push({
     id: 'active_jobs',
     name: 'Active Job Listings',
     description: 'Open positions on job boards',
     found: activeJobsFound,
-    value: activeJobsFound ? `${jobCount} listing(s) found` : getStatusMessage(),
+    value: activeJobsFound
+      ? `${jobCount} listing(s) found`
+      : (apiAvailable ? 'No listings found' : 'API key required'),
     source: 'Job board search',
     category: 'operational',
     points: activeJobsFound ? 4 : 0,
     maxPoints: 4,
   });
+
+  console.log(`[Careers] Complete - found: ${activeJobsFound}, count: ${jobCount}`);
 
   return {
     signals,

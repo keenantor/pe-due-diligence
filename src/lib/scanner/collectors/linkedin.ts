@@ -2,13 +2,8 @@ import { Signal, CollectorResult, CollectorContext } from '../types';
 
 const SERPER_API_KEY = process.env.SERPER_API_KEY;
 
-// Debug logging for Vercel
-const DEBUG = true;
-function debugLog(message: string, data?: unknown) {
-  if (DEBUG) {
-    console.log(`[LinkedIn Collector] ${message}`, data ? JSON.stringify(data, null, 2) : '');
-  }
-}
+// Add delay for more reliable API responses
+const delay = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
 
 export async function collectLinkedInSignals(
   context: CollectorContext
@@ -19,149 +14,117 @@ export async function collectLinkedInSignals(
   const metadata: Record<string, unknown> = {};
   const errors: CollectorResult['errors'] = [];
 
-  const searchQuery = companyName || domain;
-  // Also search by domain without TLD for better matching
-  const domainName = domain?.replace(/\.(com|io|co|org|net|ai)$/, '') || '';
+  const searchQuery = companyName || domain || '';
 
-  // LinkedIn company page detection
   let linkedInFound = false;
   let linkedInUrl: string | undefined;
   let foundersFound = false;
   let apiAvailable = !!SERPER_API_KEY;
-  let searchSucceeded = false;
 
-  debugLog('Starting LinkedIn collection', {
-    companyName,
-    domain,
-    searchQuery,
-    domainName,
-    apiKeyPresent: !!SERPER_API_KEY,
-    apiKeyLength: SERPER_API_KEY?.length
-  });
-
-  if (SERPER_API_KEY) {
+  if (SERPER_API_KEY && searchQuery) {
     try {
-      // Run both searches in parallel for speed
-      debugLog('Searching LinkedIn (parallel requests)');
+      // Search 1: Find LinkedIn company page
+      console.log(`[LinkedIn] Searching for company: "${searchQuery}"`);
 
-      const [companyResponse, founderResponse] = await Promise.all([
-        // Search for LinkedIn company page
-        fetch('https://google.serper.dev/search', {
-          method: 'POST',
-          headers: {
-            'X-API-KEY': SERPER_API_KEY,
-            'Content-Type': 'application/json',
-          },
-          body: JSON.stringify({
-            q: `site:linkedin.com/company "${searchQuery}"`,
-            num: 10,
-          }),
+      const companyResponse = await fetch('https://google.serper.dev/search', {
+        method: 'POST',
+        headers: {
+          'X-API-KEY': SERPER_API_KEY,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          q: `${searchQuery} linkedin company page`,
+          num: 10,
         }),
-        // Search for founders/leadership
-        fetch('https://google.serper.dev/search', {
-          method: 'POST',
-          headers: {
-            'X-API-KEY': SERPER_API_KEY,
-            'Content-Type': 'application/json',
-          },
-          body: JSON.stringify({
-            q: `"${searchQuery}" (founder OR CEO) site:linkedin.com/in`,
-            num: 10,
-          }),
-        }),
-      ]);
+      });
 
-      // Process company results
       if (companyResponse.ok) {
         const companyData = await companyResponse.json();
-        const companyResults = companyData.organic || [];
-        searchSucceeded = true;
+        const results = companyData.organic || [];
 
-        debugLog('Company search results', {
-          count: companyResults.length,
-          first: companyResults[0] ? { title: companyResults[0].title, link: companyResults[0].link } : null
-        });
+        console.log(`[LinkedIn] Got ${results.length} results`);
 
-        // Find LinkedIn company page
-        const linkedInResult = companyResults.find(
-          (r: { link: string; title: string; snippet?: string }) => {
-            const link = r.link.toLowerCase();
-            return link.includes('linkedin.com/company/');
+        // Find any LinkedIn company page in results
+        for (const result of results) {
+          const link = result.link || '';
+          if (link.includes('linkedin.com/company/')) {
+            linkedInFound = true;
+            linkedInUrl = link;
+            metadata.linkedInUrl = link;
+            metadata.linkedInTitle = result.title;
+            console.log(`[LinkedIn] FOUND company page: ${link}`);
+            break;
           }
-        );
-
-        if (linkedInResult) {
-          linkedInFound = true;
-          linkedInUrl = linkedInResult.link;
-          metadata.linkedInUrl = linkedInUrl;
-          metadata.linkedInTitle = linkedInResult.title;
-          debugLog('LinkedIn company FOUND', { linkedInUrl });
         }
       }
 
-      // Process founder results
+      // Wait before next request to avoid rate limiting
+      await delay(500);
+
+      // Search 2: Find leadership/founders
+      console.log(`[LinkedIn] Searching for founders of: "${searchQuery}"`);
+
+      const founderResponse = await fetch('https://google.serper.dev/search', {
+        method: 'POST',
+        headers: {
+          'X-API-KEY': SERPER_API_KEY,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          q: `${searchQuery} CEO founder linkedin`,
+          num: 10,
+        }),
+      });
+
       if (founderResponse.ok) {
         const founderData = await founderResponse.json();
-        const founderResults = founderData.organic || [];
+        const results = founderData.organic || [];
 
-        debugLog('Founder search results', { count: founderResults.length });
+        console.log(`[LinkedIn] Got ${results.length} founder results`);
 
-        // Filter to relevant profiles
-        const relevantProfiles = founderResults.filter(
-          (r: { title: string; snippet?: string }) => {
-            const title = (r.title || '').toLowerCase();
-            const snippet = (r.snippet || '').toLowerCase();
-            const query = searchQuery.toLowerCase();
-            return title.includes(query) || snippet.includes(query);
+        // Find LinkedIn profile pages
+        const profiles: { name: string; url: string }[] = [];
+        for (const result of results) {
+          const link = result.link || '';
+          if (link.includes('linkedin.com/in/')) {
+            profiles.push({
+              name: result.title || 'Unknown',
+              url: link,
+            });
+            if (profiles.length >= 5) break;
           }
-        );
+        }
 
-        foundersFound = relevantProfiles.length > 0;
-        if (foundersFound) {
-          metadata.founderProfiles = relevantProfiles.slice(0, 5).map(
-            (r: { title: string; link: string }) => ({
-              name: r.title,
-              url: r.link,
-            })
-          );
+        if (profiles.length > 0) {
+          foundersFound = true;
+          metadata.founderProfiles = profiles;
+          console.log(`[LinkedIn] FOUND ${profiles.length} founder profiles`);
         }
       }
+
     } catch (e) {
+      console.error(`[LinkedIn] Error:`, e);
       errors.push({
         code: 'LINKEDIN_SEARCH_ERROR',
         message: `LinkedIn search failed: ${e instanceof Error ? e.message : String(e)}`,
         recoverable: true,
       });
-      searchSucceeded = false;
     }
-  } else {
-    debugLog('SERPER_API_KEY not available - cannot search');
   }
 
-  debugLog('Final results', { linkedInFound, foundersFound, searchSucceeded, apiAvailable });
-
-  // Determine the status message based on what happened
-  const getStatusMessage = (found: boolean, defaultValue?: string) => {
-    if (found) return defaultValue;
-    if (!apiAvailable) return 'Unable to verify (API key not configured)';
-    if (!searchSucceeded) return 'Unable to verify (search failed)';
-    return 'Not found in search results';
-  };
-
-  // LinkedIn company page signal
+  // Build signals
   signals.push({
     id: 'linkedin_company',
     name: 'LinkedIn Company Page',
     description: 'Company has LinkedIn presence',
     found: linkedInFound,
-    value: linkedInFound ? linkedInUrl : getStatusMessage(linkedInFound),
+    value: linkedInFound ? linkedInUrl : (apiAvailable ? 'Not found' : 'API key required'),
     source: 'Search engine lookup',
     category: 'leadership',
     points: linkedInFound ? 6 : 0,
     maxPoints: 6,
   });
 
-  // Founders identifiable signal
   signals.push({
     id: 'founders_identifiable',
     name: 'Founders/CEO Identifiable',
@@ -169,14 +132,13 @@ export async function collectLinkedInSignals(
     found: foundersFound,
     value: foundersFound
       ? `${(metadata.founderProfiles as unknown[])?.length || 0} profile(s) found`
-      : getStatusMessage(foundersFound),
+      : (apiAvailable ? 'Not found' : 'API key required'),
     source: 'Search engine lookup',
     category: 'leadership',
     points: foundersFound ? 6 : 0,
     maxPoints: 6,
   });
 
-  // Employee count - this would need LinkedIn API or scraping
   signals.push({
     id: 'employee_count',
     name: 'Employee Count Available',
@@ -188,6 +150,8 @@ export async function collectLinkedInSignals(
     points: 0,
     maxPoints: 4,
   });
+
+  console.log(`[LinkedIn] Complete - linkedIn: ${linkedInFound}, founders: ${foundersFound}`);
 
   return {
     signals,
