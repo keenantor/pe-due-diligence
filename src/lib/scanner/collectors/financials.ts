@@ -359,16 +359,16 @@ async function searchPublicFinancials(companyName: string): Promise<PublicFiling
   }
 }
 
-// Fetch financial metrics from Financial Modeling Prep API
+// Fetch financial metrics from Financial Modeling Prep API (using new stable endpoints)
 async function fetchFinancialMetrics(ticker: string): Promise<FinancialMetrics | null> {
   if (!FMP_API_KEY) {
     return null;
   }
 
   try {
-    // Get the latest annual income statement
-    const incomeUrl = `https://financialmodelingprep.com/api/v3/income-statement/${ticker}?period=annual&limit=1&apikey=${FMP_API_KEY}`;
-    const balanceUrl = `https://financialmodelingprep.com/api/v3/balance-sheet-statement/${ticker}?period=annual&limit=1&apikey=${FMP_API_KEY}`;
+    // Get the latest annual income statement (new stable API endpoints)
+    const incomeUrl = `https://financialmodelingprep.com/stable/income-statement?symbol=${ticker}&period=annual&limit=1&apikey=${FMP_API_KEY}`;
+    const balanceUrl = `https://financialmodelingprep.com/stable/balance-sheet-statement?symbol=${ticker}&period=annual&limit=1&apikey=${FMP_API_KEY}`;
 
     const [incomeResponse, balanceResponse] = await Promise.all([
       fetch(incomeUrl),
