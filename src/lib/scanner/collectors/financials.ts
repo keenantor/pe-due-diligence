@@ -222,17 +222,29 @@ async function checkSECEdgar(companyName: string): Promise<SECResult> {
     for (const hit of hits.slice(0, 5)) {
       const source = hit._source || {};
       cik = cik || source.ciks?.[0];
-      ticker = ticker || source.tickers?.[0];
+
+      // Extract ticker from display_names like "MICROSOFT CORP (MSFT) (CIK 0000789019)"
+      if (!ticker && source.display_names?.[0]) {
+        const tickerMatch = source.display_names[0].match(/\(([A-Z]{1,5})\)/);
+        if (tickerMatch) {
+          ticker = tickerMatch[1];
+        }
+      }
 
       const filingCik = source.ciks?.[0];
+      const displayName = source.display_names?.[0] || '';
+      const companyNameFromSec = displayName.split('(')[0]?.trim() || companyName;
+
       filings.push({
-        name: `${source.form || 'Filing'} - ${source.company_name || companyName}`,
+        name: `${source.form || 'Filing'} - ${companyNameFromSec}`,
         url: filingCik
           ? `https://www.sec.gov/cgi-bin/browse-edgar?action=getcompany&CIK=${filingCik}&type=${source.form || '10-K'}&dateb=&owner=include&count=10`
           : `https://www.sec.gov/cgi-bin/browse-edgar?company=${encodeURIComponent(companyName)}&type=10-K`,
         date: source.file_date || source.period_of_report || '',
       });
     }
+
+    console.log(`[Financials] SEC search found CIK: ${cik}, Ticker: ${ticker}`);
 
     return {
       found: filings.length > 0 && !!cik,
