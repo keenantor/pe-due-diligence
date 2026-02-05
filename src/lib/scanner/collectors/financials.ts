@@ -58,50 +58,90 @@ export async function collectFinancialSignals(
 
   console.log(`[Financials] Starting search for: "${companyName || domain}"`);
 
-  // Try SEC EDGAR first (US public companies)
-  try {
-    console.log(`[Financials] Step 1: Checking SEC EDGAR...`);
-    await delay(1000);
+  // Step 1: Try to find ticker via FMP search (most reliable for US public companies)
+  if (FMP_API_KEY) {
+    try {
+      console.log(`[Financials] Step 1: Searching for ticker via FMP...`);
+      await delay(500);
 
-    const secData = await checkSECEdgar(companyName || domain || '');
-    if (secData.found) {
-      financialData = {
-        available: true,
-        source: 'SEC',
-        companyType: 'Public US',
-        records: [{
-          source: 'SEC EDGAR',
-          sourceUrl: `https://www.sec.gov/cgi-bin/browse-edgar?action=getcompany&CIK=${secData.cik}&type=10-K`,
-          verified: true,
-          period: 'Annual Filings Available',
-          description: 'View official SEC filings for verified financial data',
-        }],
-        filingLinks: secData.filings,
-        ticker: secData.ticker,
-        cik: secData.cik,
-        message: `Public company - SEC filings available (CIK: ${secData.cik}${secData.ticker ? `, Ticker: ${secData.ticker}` : ''})`,
-      };
-      console.log(`[Financials] FOUND SEC filings for CIK: ${secData.cik}`);
+      const tickerResult = await searchTickerByName(companyName || domain || '');
+      if (tickerResult.found && tickerResult.ticker) {
+        console.log(`[Financials] Found ticker: ${tickerResult.ticker} for ${tickerResult.companyName}`);
 
-      // If we have a ticker, try to get actual financial metrics from FMP
-      if (secData.ticker && FMP_API_KEY) {
-        console.log(`[Financials] Step 1b: Fetching financial metrics for ${secData.ticker}...`);
+        // Fetch financial metrics
+        console.log(`[Financials] Step 2: Fetching financial metrics for ${tickerResult.ticker}...`);
         await delay(500);
 
-        const metrics = await fetchFinancialMetrics(secData.ticker);
+        const metrics = await fetchFinancialMetrics(tickerResult.ticker);
+
         if (metrics) {
-          financialData.metrics = metrics;
-          console.log(`[Financials] FOUND financial metrics for ${secData.ticker}`);
+          financialData = {
+            available: true,
+            source: 'SEC',
+            companyType: 'Public US',
+            records: [{
+              source: 'SEC EDGAR / FMP',
+              sourceUrl: `https://www.sec.gov/cgi-bin/browse-edgar?company=${encodeURIComponent(tickerResult.companyName || '')}&type=10-K`,
+              verified: true,
+              period: `FY ${metrics.fiscalYear || 'Latest'}`,
+              description: 'Verified financial data from SEC filings',
+            }],
+            filingLinks: [{
+              name: `SEC Filings - ${tickerResult.companyName}`,
+              url: `https://www.sec.gov/cgi-bin/browse-edgar?action=getcompany&company=${encodeURIComponent(tickerResult.companyName || '')}&type=10-K&dateb=&owner=include&count=10`,
+              date: '',
+            }],
+            ticker: tickerResult.ticker,
+            message: `Public company - ${tickerResult.companyName} (${tickerResult.ticker})`,
+            metrics,
+          };
+          console.log(`[Financials] SUCCESS - Got financial metrics for ${tickerResult.ticker}`);
         }
       }
+    } catch (e) {
+      console.error(`[Financials] FMP search error:`, e);
+      errors.push({
+        code: 'FMP_SEARCH_ERROR',
+        message: `FMP ticker search failed: ${e}`,
+        recoverable: true,
+      });
     }
-  } catch (e) {
-    console.error(`[Financials] SEC error:`, e);
-    errors.push({
-      code: 'SEC_ERROR',
-      message: `SEC lookup failed: ${e}`,
-      recoverable: true,
-    });
+  }
+
+  // Step 2: Fallback to SEC EDGAR search if FMP didn't find anything
+  if (!financialData.available) {
+    try {
+      console.log(`[Financials] Step 3: Fallback - Checking SEC EDGAR...`);
+      await delay(1000);
+
+      const secData = await checkSECEdgar(companyName || domain || '');
+      if (secData.found) {
+        financialData = {
+          available: true,
+          source: 'SEC',
+          companyType: 'Public US',
+          records: [{
+            source: 'SEC EDGAR',
+            sourceUrl: `https://www.sec.gov/cgi-bin/browse-edgar?action=getcompany&CIK=${secData.cik}&type=10-K`,
+            verified: true,
+            period: 'Annual Filings Available',
+            description: 'View official SEC filings for verified financial data',
+          }],
+          filingLinks: secData.filings,
+          ticker: secData.ticker,
+          cik: secData.cik,
+          message: `Public company - SEC filings available (CIK: ${secData.cik}${secData.ticker ? `, Ticker: ${secData.ticker}` : ''})`,
+        };
+        console.log(`[Financials] FOUND SEC filings for CIK: ${secData.cik}`);
+      }
+    } catch (e) {
+      console.error(`[Financials] SEC error:`, e);
+      errors.push({
+        code: 'SEC_ERROR',
+        message: `SEC lookup failed: ${e}`,
+        recoverable: true,
+      });
+    }
   }
 
   // Try Companies House (UK companies)
@@ -368,6 +408,49 @@ async function searchPublicFinancials(companyName: string): Promise<PublicFiling
     };
   } catch {
     return { found: false, filings: [] };
+  }
+}
+
+// Search for ticker by company name using FMP
+async function searchTickerByName(companyName: string): Promise<{ found: boolean; ticker?: string; companyName?: string }> {
+  if (!FMP_API_KEY) {
+    return { found: false };
+  }
+
+  try {
+    const searchUrl = `https://financialmodelingprep.com/stable/search-name?query=${encodeURIComponent(companyName)}&apikey=${FMP_API_KEY}`;
+    const response = await fetch(searchUrl);
+
+    if (!response.ok) {
+      console.log(`[Financials] FMP search returned ${response.status}`);
+      return { found: false };
+    }
+
+    const data = await response.json();
+
+    if (!Array.isArray(data) || data.length === 0) {
+      console.log(`[Financials] No ticker found for "${companyName}"`);
+      return { found: false };
+    }
+
+    // Find the best match - prefer US exchanges (NASDAQ, NYSE)
+    const usExchanges = ['NASDAQ', 'NYSE', 'AMEX'];
+    const usMatch = data.find((item: { exchange?: string }) =>
+      usExchanges.some(ex => item.exchange?.toUpperCase().includes(ex))
+    );
+
+    const bestMatch = usMatch || data[0];
+
+    console.log(`[Financials] Found ticker: ${bestMatch.symbol} (${bestMatch.name}) on ${bestMatch.exchange}`);
+
+    return {
+      found: true,
+      ticker: bestMatch.symbol,
+      companyName: bestMatch.name,
+    };
+  } catch (e) {
+    console.error('[Financials] FMP ticker search error:', e);
+    return { found: false };
   }
 }
 
