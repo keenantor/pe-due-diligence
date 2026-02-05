@@ -55,6 +55,7 @@ export interface FinancialData {
   ticker?: string;
   cik?: string;
   companyNumber?: string;
+  message: string;
 }
 
 export interface FinancialRecord {
@@ -62,18 +63,7 @@ export interface FinancialRecord {
   sourceUrl: string;
   verified: boolean;
   period: string;
-  currency: string;
-  metrics: {
-    revenue?: number;
-    netIncome?: number;
-    totalAssets?: number;
-    totalLiabilities?: number;
-    employees?: number;
-    grossProfit?: number;
-    operatingIncome?: number;
-    ebitda?: number;
-  };
-  rawData?: string;
+  description: string;
 }
 
 // Main scan result
