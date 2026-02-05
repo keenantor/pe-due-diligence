@@ -17,28 +17,45 @@ const scanSteps = [
   { icon: Brain, label: 'AI Analysis', desc: 'Generating insights' },
 ];
 
-// Simulated terminal output lines
+// Terminal output lines - no looping, runs once through the full scan
 const terminalLines = [
-  { text: 'Initializing scan...', delay: 0 },
-  { text: 'Resolving DNS records', delay: 400 },
-  { text: 'GET https://target.com/ 200 OK', delay: 800 },
-  { text: 'Parsing HTML content...', delay: 1200 },
-  { text: 'Extracting metadata', delay: 1600 },
-  { text: 'GET /api/linkedin/search 200 OK', delay: 2200 },
-  { text: 'Scanning leadership profiles...', delay: 2800 },
-  { text: 'GET /api/serper/news 200 OK', delay: 3400 },
-  { text: 'Analyzing press coverage', delay: 3800 },
-  { text: 'GET /api/domain/whois 200 OK', delay: 4400 },
-  { text: 'Validating domain age...', delay: 4800 },
-  { text: 'GET /api/sec/edgar 200 OK', delay: 5400 },
-  { text: 'Parsing financial records', delay: 5800 },
-  { text: 'GET /api/jobs/search 200 OK', delay: 6400 },
-  { text: 'Counting active listings...', delay: 6800 },
-  { text: 'Running tech stack detection', delay: 7400 },
-  { text: 'Analyzing SSL certificate', delay: 7800 },
-  { text: 'Computing coverage score...', delay: 8400 },
-  { text: 'Generating AI interpretation', delay: 9000 },
-  { text: 'Compiling final report...', delay: 9600 },
+  { text: 'Initializing diligence scan...' },
+  { text: 'Resolving DNS records' },
+  { text: 'GET https://target.com/ 200 OK' },
+  { text: 'Parsing HTML content...' },
+  { text: 'Extracting page metadata' },
+  { text: 'Searching for LinkedIn company page...' },
+  { text: 'GET /api/linkedin/company 200 OK' },
+  { text: 'Verifying LinkedIn profile URL...' },
+  { text: 'Cross-referencing company name...' },
+  { text: 'Searching for leadership profiles...' },
+  { text: 'GET /api/linkedin/people 200 OK' },
+  { text: 'Verifying executive profiles...' },
+  { text: 'GET /api/serper/search 200 OK' },
+  { text: 'Analyzing third-party mentions...' },
+  { text: 'Cross-referencing search results...' },
+  { text: 'GET /api/serper/news 200 OK' },
+  { text: 'Scanning news coverage...' },
+  { text: 'GET /api/domain/whois 200 OK' },
+  { text: 'Validating domain registration...' },
+  { text: 'Checking domain age...' },
+  { text: 'GET /api/sec/edgar 200 OK' },
+  { text: 'Searching SEC EDGAR filings...' },
+  { text: 'Checking Companies House records...' },
+  { text: 'GET /api/jobs/linkedin 200 OK' },
+  { text: 'Searching active job listings...' },
+  { text: 'Verifying job posting URLs...' },
+  { text: 'GET /api/jobs/indeed 200 OK' },
+  { text: 'Cross-referencing job sources...' },
+  { text: 'Analyzing tech stack...' },
+  { text: 'Validating SSL certificate...' },
+  { text: 'Computing signal scores...' },
+  { text: 'Calculating coverage level...' },
+  { text: 'Applying risk penalties...' },
+  { text: 'GET /api/mistral/interpret 200 OK' },
+  { text: 'Generating AI interpretation...' },
+  { text: 'Compiling final report...' },
+  { text: 'Scan complete. Rendering results...' },
 ];
 
 export function ScanProgress({ currentStep }: ScanProgressProps) {
@@ -48,40 +65,44 @@ export function ScanProgress({ currentStep }: ScanProgressProps) {
   const [currentLineIndex, setCurrentLineIndex] = useState(0);
   const terminalRef = useRef<HTMLDivElement>(null);
 
-  // Cycle through steps
+  // Progress through steps - NO LOOPING
   useEffect(() => {
     const stepTimer = setInterval(() => {
       setActiveStep((prev) => {
+        // Mark current step as completed before moving on
         if (prev < scanSteps.length - 1) {
           setCompletedSteps((c) => (c.includes(prev) ? c : [...c, prev]));
+          return prev + 1;
         }
-        return (prev + 1) % scanSteps.length;
+        // Stay on the last step (AI Analysis)
+        return prev;
       });
-    }, 2500);
+    }, 4000);
 
     return () => clearInterval(stepTimer);
   }, []);
 
-  // Add terminal lines progressively
+  // Add terminal lines progressively - NO LOOPING
   useEffect(() => {
+    // Stop when we've shown all lines
     if (currentLineIndex >= terminalLines.length) {
-      // Loop back with new variations
-      const loopTimer = setTimeout(() => {
-        setCurrentLineIndex(0);
-        setVisibleLines([]);
-      }, 3000);
-      return () => clearTimeout(loopTimer);
+      return;
     }
 
     const line = terminalLines[currentLineIndex];
+    // Vary the delay to feel more natural: 800-1500ms per line
+    const baseDelay = 800;
+    const randomExtra = Math.floor(Math.random() * 700);
+    const delay = currentLineIndex === 0 ? 300 : baseDelay + randomExtra;
+
     const timer = setTimeout(() => {
       setVisibleLines((prev) => {
         const newLines = [...prev, line.text];
-        // Keep only last 8 lines
-        return newLines.slice(-8);
+        // Keep only last 10 lines visible
+        return newLines.slice(-10);
       });
       setCurrentLineIndex((prev) => prev + 1);
-    }, currentLineIndex === 0 ? 500 : 500);
+    }, delay);
 
     return () => clearTimeout(timer);
   }, [currentLineIndex]);
@@ -122,7 +143,7 @@ export function ScanProgress({ currentStep }: ScanProgressProps) {
         {/* Terminal content */}
         <div
           ref={terminalRef}
-          className="p-4 h-48 overflow-y-auto font-mono text-sm"
+          className="p-4 h-56 overflow-y-auto font-mono text-sm"
         >
           {visibleLines.map((line, index) => (
             <div
@@ -192,7 +213,9 @@ export function ScanProgress({ currentStep }: ScanProgressProps) {
       <div className="text-center">
         <div className="inline-flex items-center gap-2 px-4 py-2 rounded-full bg-purple-500/10 border border-purple-500/30">
           <span className="w-2 h-2 rounded-full bg-purple-500 animate-pulse" />
-          <span className="text-purple-300 text-sm">Scanning 7 data sources</span>
+          <span className="text-purple-300 text-sm">
+            Step {Math.min(completedSteps.length + 1, scanSteps.length)} of {scanSteps.length} — {scanSteps[activeStep]?.desc || 'Processing'}
+          </span>
         </div>
       </div>
     </div>
