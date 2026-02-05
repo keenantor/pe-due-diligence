@@ -2,8 +2,28 @@ import { Signal, CollectorResult, CollectorContext } from '../types';
 
 const SERPER_API_KEY = process.env.SERPER_API_KEY;
 
-// Add delay for more reliable API responses
 const delay = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
+
+// Verify a URL actually exists
+async function verifyUrl(url: string): Promise<boolean> {
+  try {
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 5000);
+
+    const response = await fetch(url, {
+      method: 'HEAD',
+      signal: controller.signal,
+      headers: {
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
+      },
+    });
+
+    clearTimeout(timeout);
+    return response.ok || response.status === 403;
+  } catch {
+    return false;
+  }
+}
 
 export async function collectCareersSignals(
   context: CollectorContext
@@ -21,66 +41,170 @@ export async function collectCareersSignals(
 
   if (SERPER_API_KEY && searchQuery) {
     try {
-      // Search for job listings
-      console.log(`[Careers] Searching for jobs at: "${searchQuery}"`);
+      console.log(`[Careers] Starting thorough job search for: "${searchQuery}"`);
 
-      const jobResponse = await fetch('https://google.serper.dev/search', {
+      // ========== STEP 1: Search LinkedIn Jobs ==========
+      console.log(`[Careers] Step 1: Searching LinkedIn Jobs...`);
+      await delay(1000);
+
+      const linkedInJobsResponse = await fetch('https://google.serper.dev/search', {
         method: 'POST',
         headers: {
           'X-API-KEY': SERPER_API_KEY,
           'Content-Type': 'application/json',
         },
         body: JSON.stringify({
-          q: `${searchQuery} jobs careers hiring`,
-          num: 20,
+          q: `"${searchQuery}" site:linkedin.com/jobs`,
+          num: 10,
         }),
       });
 
-      if (jobResponse.ok) {
-        const jobData = await jobResponse.json();
-        const results = jobData.organic || [];
+      const allJobListings: { title: string; url: string; source: string }[] = [];
 
-        console.log(`[Careers] Got ${results.length} results`);
-
-        // Look for job board results
-        const jobBoardDomains = [
-          'linkedin.com/jobs',
-          'linkedin.com/company',
-          'indeed.com',
-          'glassdoor.com',
-          'lever.co',
-          'greenhouse.io',
-          'workday.com',
-          'smartrecruiters.com',
-          'careers.',
-          '/careers',
-          '/jobs',
-        ];
-
-        const jobListings: { title: string; url: string }[] = [];
+      if (linkedInJobsResponse.ok) {
+        const data = await linkedInJobsResponse.json();
+        const results = data.organic || [];
+        console.log(`[Careers] Found ${results.length} LinkedIn job results`);
 
         for (const result of results) {
-          const link = (result.link || '').toLowerCase();
-          const title = result.title || '';
-
-          // Check if it's from a job-related site
-          const isJobSite = jobBoardDomains.some(d => link.includes(d));
-
-          if (isJobSite) {
-            jobListings.push({ title, url: result.link });
+          if (result.link?.includes('linkedin.com')) {
+            allJobListings.push({
+              title: result.title || 'Job Listing',
+              url: result.link,
+              source: 'LinkedIn',
+            });
           }
-        }
-
-        if (jobListings.length > 0) {
-          activeJobsFound = true;
-          jobCount = jobListings.length;
-          metadata.jobListings = jobListings.slice(0, 10);
-          console.log(`[Careers] FOUND ${jobCount} job listings`);
         }
       }
 
-      // Wait before potential additional requests
-      await delay(300);
+      // ========== STEP 2: Search Indeed ==========
+      console.log(`[Careers] Step 2: Searching Indeed...`);
+      await delay(1500);
+
+      const indeedResponse = await fetch('https://google.serper.dev/search', {
+        method: 'POST',
+        headers: {
+          'X-API-KEY': SERPER_API_KEY,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          q: `"${searchQuery}" jobs site:indeed.com`,
+          num: 10,
+        }),
+      });
+
+      if (indeedResponse.ok) {
+        const data = await indeedResponse.json();
+        const results = data.organic || [];
+        console.log(`[Careers] Found ${results.length} Indeed results`);
+
+        for (const result of results) {
+          if (result.link?.includes('indeed.com')) {
+            allJobListings.push({
+              title: result.title || 'Job Listing',
+              url: result.link,
+              source: 'Indeed',
+            });
+          }
+        }
+      }
+
+      // ========== STEP 3: Search Glassdoor ==========
+      console.log(`[Careers] Step 3: Searching Glassdoor...`);
+      await delay(1500);
+
+      const glassdoorResponse = await fetch('https://google.serper.dev/search', {
+        method: 'POST',
+        headers: {
+          'X-API-KEY': SERPER_API_KEY,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          q: `"${searchQuery}" jobs site:glassdoor.com`,
+          num: 10,
+        }),
+      });
+
+      if (glassdoorResponse.ok) {
+        const data = await glassdoorResponse.json();
+        const results = data.organic || [];
+        console.log(`[Careers] Found ${results.length} Glassdoor results`);
+
+        for (const result of results) {
+          if (result.link?.includes('glassdoor.com')) {
+            allJobListings.push({
+              title: result.title || 'Job Listing',
+              url: result.link,
+              source: 'Glassdoor',
+            });
+          }
+        }
+      }
+
+      // ========== STEP 4: Search company careers page ==========
+      if (domain) {
+        console.log(`[Careers] Step 4: Checking company careers page...`);
+        await delay(1500);
+
+        const careersResponse = await fetch('https://google.serper.dev/search', {
+          method: 'POST',
+          headers: {
+            'X-API-KEY': SERPER_API_KEY,
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({
+            q: `site:${domain} careers OR jobs OR "open positions"`,
+            num: 5,
+          }),
+        });
+
+        if (careersResponse.ok) {
+          const data = await careersResponse.json();
+          const results = data.organic || [];
+          console.log(`[Careers] Found ${results.length} company careers page results`);
+
+          for (const result of results) {
+            allJobListings.push({
+              title: result.title || 'Careers Page',
+              url: result.link,
+              source: 'Company Website',
+            });
+          }
+        }
+      }
+
+      console.log(`[Careers] Total job listings found: ${allJobListings.length}`);
+
+      // ========== STEP 5: Verify at least some job listings exist ==========
+      if (allJobListings.length > 0) {
+        console.log(`[Careers] Step 5: Verifying job listings...`);
+        await delay(1000);
+
+        let verifiedCount = 0;
+        const verifiedListings: typeof allJobListings = [];
+
+        for (const listing of allJobListings.slice(0, 5)) {
+          console.log(`[Careers] Verifying: ${listing.url}`);
+          const isValid = await verifyUrl(listing.url);
+
+          if (isValid) {
+            verifiedCount++;
+            verifiedListings.push(listing);
+            console.log(`[Careers] VERIFIED: ${listing.source} - ${listing.title}`);
+          }
+          await delay(500);
+
+          if (verifiedCount >= 3) break; // Enough verification
+        }
+
+        if (verifiedCount > 0) {
+          activeJobsFound = true;
+          jobCount = allJobListings.length;
+          metadata.jobListings = verifiedListings;
+          metadata.totalFound = allJobListings.length;
+          metadata.verified = verifiedCount;
+        }
+      }
 
     } catch (e) {
       console.error(`[Careers] Error:`, e);
@@ -99,20 +223,21 @@ export async function collectCareersSignals(
     description: 'Open positions on job boards',
     found: activeJobsFound,
     value: activeJobsFound
-      ? `${jobCount} listing(s) found`
-      : (apiAvailable ? 'No listings found' : 'API key required'),
-    source: 'Job board search',
+      ? `${jobCount} listings found (${metadata.verified} verified)`
+      : (apiAvailable ? 'No verified listings found' : 'API key required'),
+    source: 'Multiple job boards + verification',
     category: 'operational',
     points: activeJobsFound ? 4 : 0,
     maxPoints: 4,
   });
 
-  console.log(`[Careers] Complete - found: ${activeJobsFound}, count: ${jobCount}`);
+  const duration = Date.now() - startTime;
+  console.log(`[Careers] Complete in ${duration}ms - Found: ${activeJobsFound}, Count: ${jobCount}`);
 
   return {
     signals,
     metadata,
     errors,
-    duration: Date.now() - startTime,
+    duration,
   };
 }
