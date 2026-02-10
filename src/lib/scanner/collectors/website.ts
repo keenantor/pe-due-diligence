@@ -50,10 +50,7 @@ export async function collectWebsiteSignals(
     if (titleMatch) {
       homepageTitle = titleMatch[1].trim();
       // Try to extract company name from title
-      const cleanTitle = homepageTitle
-        .replace(/\s*[\-|–|—|:]\s*.*(home|homepage|welcome|official).*/i, '')
-        .replace(/\s*[\-|–|—|:]\s*$/,'')
-        .trim();
+      const cleanTitle = extractCompanyNameFromTitle(homepageTitle, domain);
       if (cleanTitle && cleanTitle.length < 50) {
         metadata.companyName = cleanTitle;
       }
@@ -346,4 +343,86 @@ function getSignalMaxPoints(id: string): number {
     blog_present: 3,
   };
   return pointsMap[id] || 0;
+}
+
+/**
+ * Extract company name from page title, handling common patterns like:
+ * - "Home | Palantir" -> "Palantir"
+ * - "Welcome to Acme Corp" -> "Acme Corp"
+ * - "Microsoft – Official Home Page" -> "Microsoft"
+ * - "Company Name: Homepage" -> "Company Name"
+ */
+function extractCompanyNameFromTitle(title: string, domain: string): string {
+  // Common words to filter out
+  const genericWords = [
+    'home', 'homepage', 'welcome', 'official', 'site', 'website',
+    'page', 'main', 'index', 'landing', 'the', 'to', 'at', 'of'
+  ];
+
+  // Split by common separators
+  const separators = /\s*[|\-–—:•·]\s*/;
+  const parts = title.split(separators).map(p => p.trim()).filter(p => p.length > 0);
+
+  // Score each part to find the most likely company name
+  let bestPart = '';
+  let bestScore = -1;
+
+  for (const part of parts) {
+    let score = 0;
+    const lowerPart = part.toLowerCase();
+
+    // Skip if it's just generic words
+    const words = lowerPart.split(/\s+/);
+    const nonGenericWords = words.filter(w => !genericWords.includes(w));
+    if (nonGenericWords.length === 0) continue;
+
+    // Boost score if it contains the domain name (without TLD)
+    const domainName = domain.replace(/\.(com|org|net|io|co|ai|tech|app|dev|xyz|inc)$/i, '').toLowerCase();
+    if (lowerPart.includes(domainName)) {
+      score += 10;
+    }
+
+    // Boost score for capitalized words (likely proper nouns)
+    const capitalizedWords = part.split(/\s+/).filter(w => /^[A-Z]/.test(w));
+    score += capitalizedWords.length * 2;
+
+    // Penalize if starts with generic words
+    if (genericWords.includes(words[0])) {
+      score -= 5;
+    }
+
+    // Prefer shorter, cleaner names (but not too short)
+    if (part.length >= 3 && part.length <= 30) {
+      score += 3;
+    }
+
+    // Boost if it looks like a company name (proper capitalization)
+    if (/^[A-Z][a-z]+(\s+[A-Z][a-z]+)*$/.test(part) || /^[A-Z]+$/.test(part)) {
+      score += 2;
+    }
+
+    if (score > bestScore) {
+      bestScore = score;
+      bestPart = part;
+    }
+  }
+
+  // If we found a good part, clean it up
+  if (bestPart) {
+    // Remove trailing generic words
+    bestPart = bestPart
+      .replace(/\s+(home|homepage|official|site|website|page|inc\.?|llc\.?|ltd\.?|corp\.?)$/i, '')
+      .replace(/^(welcome\s+to|the)\s+/i, '')
+      .trim();
+
+    return bestPart;
+  }
+
+  // Fallback: capitalize the domain name
+  const fallbackName = domain
+    .replace(/\.(com|org|net|io|co|ai|tech|app|dev|xyz|inc)$/i, '')
+    .replace(/[-_]/g, ' ')
+    .replace(/\b\w/g, c => c.toUpperCase());
+
+  return fallbackName;
 }

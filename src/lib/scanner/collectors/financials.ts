@@ -91,6 +91,63 @@ export interface FinancialData {
 
 const delay = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
 
+/**
+ * Generate multiple search terms from company name and domain
+ * to maximize chances of finding the ticker
+ */
+function generateSearchTerms(companyName: string | undefined, domain: string | undefined): string[] {
+  const terms: string[] = [];
+  const seen = new Set<string>();
+
+  const addTerm = (term: string) => {
+    const cleaned = term.trim().toLowerCase();
+    if (cleaned && cleaned.length >= 2 && !seen.has(cleaned)) {
+      seen.add(cleaned);
+      terms.push(term.trim());
+    }
+  };
+
+  // Clean and add the company name
+  if (companyName) {
+    // Add full company name
+    addTerm(companyName);
+
+    // Remove common suffixes and prefixes
+    const cleaned = companyName
+      .replace(/^(welcome to|the)\s+/i, '')
+      .replace(/\s+(inc\.?|llc\.?|ltd\.?|corp\.?|corporation|company|co\.?|technologies|tech|software|solutions|group|holdings)$/i, '')
+      .replace(/\s+(home|homepage|official|site|website|page)$/i, '')
+      .trim();
+    if (cleaned !== companyName) {
+      addTerm(cleaned);
+    }
+
+    // If it has multiple words, try just the first significant word
+    const words = cleaned.split(/\s+/).filter(w => w.length > 2);
+    if (words.length > 1) {
+      // Try first word if it's capitalized (likely the company name)
+      if (/^[A-Z]/.test(words[0])) {
+        addTerm(words[0]);
+      }
+    }
+  }
+
+  // Add domain-based name as fallback
+  if (domain) {
+    const domainName = domain
+      .replace(/\.(com|org|net|io|co|ai|tech|app|dev|xyz|inc)$/i, '')
+      .replace(/[-_]/g, ' ')
+      .trim();
+    addTerm(domainName);
+
+    // Also try capitalized version
+    const capitalized = domainName.charAt(0).toUpperCase() + domainName.slice(1);
+    addTerm(capitalized);
+  }
+
+  return terms.length > 0 ? terms : [''];
+}
+
 export async function collectFinancialSignals(
   context: CollectorContext
 ): Promise<CollectorResult & { financialData: FinancialData }> {
@@ -108,7 +165,9 @@ export async function collectFinancialSignals(
     unavailableReason: FMP_API_KEY ? undefined : 'not_configured',
   };
 
-  console.log(`[Financials] Starting search for: "${companyName || domain}"`);
+  // Generate search terms - try multiple variations
+  const searchTerms = generateSearchTerms(companyName, domain);
+  console.log(`[Financials] Starting search with terms: ${searchTerms.join(', ')}`);
 
   // Step 1: Try to find ticker via FMP search (most reliable for US public companies)
   if (FMP_API_KEY) {
@@ -116,7 +175,16 @@ export async function collectFinancialSignals(
       console.log(`[Financials] Step 1: Searching for ticker via FMP...`);
       await delay(500);
 
-      const tickerResult = await searchTickerByName(companyName || domain || '');
+      // Try each search term until we find a match
+      let tickerResult: { found: boolean; ticker?: string; companyName?: string } = { found: false };
+      for (const term of searchTerms) {
+        tickerResult = await searchTickerByName(term);
+        if (tickerResult.found) {
+          console.log(`[Financials] Found ticker with search term: "${term}"`);
+          break;
+        }
+      }
+
       if (tickerResult.found && tickerResult.ticker) {
         console.log(`[Financials] Found ticker: ${tickerResult.ticker} for ${tickerResult.companyName}`);
 
