@@ -106,8 +106,8 @@ export async function runScan(options: ScanOptions): Promise<ScanResult> {
     errors.push({ collector: 'techstack', error: String(techResult.reason) });
   }
 
-  // Process financial result
-  if (financialResult.status === 'fulfilled' && financialResult.value.financialData.available) {
+  // Process financial result - always include financialData so UI can show proper status
+  if (financialResult.status === 'fulfilled') {
     financialData = financialResult.value.financialData;
   } else if (financialResult.status === 'rejected') {
     errors.push({ collector: 'financials', error: String(financialResult.reason) });
