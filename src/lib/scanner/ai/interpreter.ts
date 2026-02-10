@@ -116,30 +116,54 @@ Please provide a comprehensive pre-diligence interpretation following the struct
 `.trim();
 }
 
-const FINANCIAL_ANALYSIS_PROMPT = `You are a senior financial analyst specializing in Private Equity due diligence. Analyze the provided financial metrics and give insights.
+const FINANCIAL_ANALYSIS_PROMPT = `You are a senior financial analyst specializing in Private Equity due diligence. Analyze the provided financial metrics and give comprehensive insights.
 
 Your analysis should include:
 
 ## Financial Overview
-Summarize the key financial metrics provided. Comment on the scale of the business.
+Summarize the key financial metrics. Comment on the scale of the business and its position in the market.
 
-## Profitability Analysis
-Analyze margins (gross margin, operating margin, net margin) based on the numbers provided.
+## Profitability & Margins Analysis
+Analyze the margin profile:
+- Gross margin, operating margin, net margin, EBITDA margin
+- Compare to typical industry benchmarks if relevant
+- Comment on profitability trends
 
-## Balance Sheet Strength
-Comment on assets, liabilities, and equity position if available.
+## Cash Flow Health
+Evaluate cash generation capabilities:
+- Operating cash flow quality
+- Free cash flow generation
+- Capital expenditure requirements
+
+## Balance Sheet & Leverage
+Comment on financial stability:
+- Debt-to-equity ratio
+- Current ratio (liquidity)
+- Asset composition
+
+## Return Metrics
+Analyze capital efficiency:
+- Return on Equity (ROE)
+- Return on Assets (ROA)
+- What these suggest about management effectiveness
+
+## Growth Trajectory
+If historical data is available:
+- Revenue growth trends
+- Earnings growth patterns
+- Sustainability of growth
 
 ## Key Observations
-2-3 bullet points on notable aspects of the financials (positive or concerning).
+3-5 bullet points on notable aspects (positive or concerning).
 
 ## Due Diligence Recommendations
-What additional financial information should be verified during full diligence.
+Prioritized areas requiring verification during full diligence.
 
 Guidelines:
 - Use the ACTUAL numbers provided - do not make up data
-- Calculate margins and ratios from the provided metrics
 - Be analytical and specific, not generic
-- Keep it concise (under 400 words)
+- Reference specific metrics when making observations
+- Keep it concise (under 600 words)
 - Do NOT make investment recommendations`;
 
 export async function generateFinancialAnalysis(
@@ -159,30 +183,83 @@ export async function generateFinancialAnalysis(
     const client = new Mistral({ apiKey: MISTRAL_API_KEY });
 
     const metrics = financialData.metrics;
-    const formatNum = (n: number) => {
-      if (n >= 1e9) return `$${(n / 1e9).toFixed(2)}B`;
-      if (n >= 1e6) return `$${(n / 1e6).toFixed(2)}M`;
-      return `$${n.toLocaleString()}`;
+
+    // Format helpers
+    const formatNum = (n: number | undefined): string => {
+      if (n === undefined) return 'N/A';
+      const absN = Math.abs(n);
+      const sign = n < 0 ? '-' : '';
+      if (absN >= 1e9) return `${sign}$${(absN / 1e9).toFixed(2)}B`;
+      if (absN >= 1e6) return `${sign}$${(absN / 1e6).toFixed(2)}M`;
+      if (absN >= 1e3) return `${sign}$${(absN / 1e3).toFixed(2)}K`;
+      return `${sign}$${absN.toLocaleString()}`;
     };
+
+    const formatPct = (n: number | undefined): string => {
+      if (n === undefined) return 'N/A';
+      return `${(n * 100).toFixed(1)}%`;
+    };
+
+    const formatRatio = (n: number | undefined): string => {
+      if (n === undefined) return 'N/A';
+      return n.toFixed(2);
+    };
+
+    // Build historical summary if available
+    let historicalSummary = '';
+    if (metrics?.historicalRevenue && metrics.historicalRevenue.length > 1) {
+      historicalSummary = `
+HISTORICAL REVENUE (${metrics.historicalRevenue.length} Years):
+${metrics.historicalRevenue.map(h => `${h.year}: ${formatNum(h.value)}`).join('\n')}`;
+    }
 
     const prompt = `
 Company: ${companyName}
 Stock Ticker: ${financialData.ticker || 'N/A'}
 Company Type: ${financialData.companyType}
-Data Source: Financial Modeling Prep (verified SEC filings)
+Data Source: ${financialData.source === 'SEC' ? 'Financial Modeling Prep (verified SEC filings)' : financialData.source}
 Fiscal Year: ${metrics?.fiscalYear || 'Latest'}
 
-FINANCIAL METRICS:
-${metrics?.revenue ? `Revenue: ${formatNum(metrics.revenue)}` : ''}
-${metrics?.grossProfit ? `Gross Profit: ${formatNum(metrics.grossProfit)}` : ''}
-${metrics?.operatingIncome ? `Operating Income: ${formatNum(metrics.operatingIncome)}` : ''}
-${metrics?.netIncome ? `Net Income: ${formatNum(metrics.netIncome)}` : ''}
-${metrics?.totalAssets ? `Total Assets: ${formatNum(metrics.totalAssets)}` : ''}
-${metrics?.totalLiabilities ? `Total Liabilities: ${formatNum(metrics.totalLiabilities)}` : ''}
-${metrics?.totalEquity ? `Shareholders' Equity: ${formatNum(metrics.totalEquity)}` : ''}
-${metrics?.eps ? `EPS: $${metrics.eps.toFixed(2)}` : ''}
+INCOME METRICS:
+Revenue: ${formatNum(metrics?.revenue)}
+Gross Profit: ${formatNum(metrics?.grossProfit)}
+Operating Income: ${formatNum(metrics?.operatingIncome)}
+EBITDA: ${formatNum(metrics?.ebitda)}
+Net Income: ${formatNum(metrics?.netIncome)}
+EPS: ${metrics?.eps !== undefined ? `$${metrics.eps.toFixed(2)}` : 'N/A'}
 
-Please analyze these financial metrics and provide insights.
+CASH FLOW:
+Operating Cash Flow: ${formatNum(metrics?.operatingCashFlow)}
+Free Cash Flow: ${formatNum(metrics?.freeCashFlow)}
+Capital Expenditures: ${formatNum(metrics?.capitalExpenditures)}
+
+BALANCE SHEET:
+Total Assets: ${formatNum(metrics?.totalAssets)}
+Total Liabilities: ${formatNum(metrics?.totalLiabilities)}
+Shareholders' Equity: ${formatNum(metrics?.totalEquity)}
+Total Debt: ${formatNum(metrics?.totalDebt)}
+
+PROFITABILITY RATIOS:
+Gross Margin: ${formatPct(metrics?.ratios?.grossMargin)}
+Operating Margin: ${formatPct(metrics?.ratios?.operatingMargin)}
+Net Margin: ${formatPct(metrics?.ratios?.netMargin)}
+EBITDA Margin: ${formatPct(metrics?.ratios?.ebitdaMargin)}
+
+RETURN METRICS:
+Return on Equity (ROE): ${formatPct(metrics?.ratios?.returnOnEquity)}
+Return on Assets (ROA): ${formatPct(metrics?.ratios?.returnOnAssets)}
+
+LEVERAGE & LIQUIDITY:
+Debt to Equity: ${formatRatio(metrics?.ratios?.debtToEquity)}x
+Current Ratio: ${formatRatio(metrics?.ratios?.currentRatio)}x
+
+GROWTH (YoY):
+Revenue Growth: ${formatPct(metrics?.growth?.revenueGrowthYoY)}
+Net Income Growth: ${formatPct(metrics?.growth?.netIncomeGrowthYoY)}
+EPS Growth: ${formatPct(metrics?.growth?.epsGrowthYoY)}
+${historicalSummary}
+
+Please analyze these financial metrics and provide comprehensive insights for PE due diligence.
 `.trim();
 
     const response = await client.chat.complete({
@@ -191,7 +268,7 @@ Please analyze these financial metrics and provide insights.
         { role: 'system', content: FINANCIAL_ANALYSIS_PROMPT },
         { role: 'user', content: prompt },
       ],
-      maxTokens: 600,
+      maxTokens: 1000,
       temperature: 0.3,
     });
 

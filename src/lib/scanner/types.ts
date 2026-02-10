@@ -45,16 +45,65 @@ export interface EffortEstimate {
   reasons: string[];
 }
 
+// Financial ratios for PE analysis
+export interface FinancialRatios {
+  grossMargin?: number;           // Gross Profit / Revenue
+  operatingMargin?: number;       // Operating Income / Revenue
+  netMargin?: number;             // Net Income / Revenue
+  ebitdaMargin?: number;          // EBITDA / Revenue
+  debtToEquity?: number;          // Total Debt / Total Equity
+  currentRatio?: number;          // Current Assets / Current Liabilities
+  returnOnEquity?: number;        // Net Income / Shareholders' Equity
+  returnOnAssets?: number;        // Net Income / Total Assets
+}
+
+// Growth metrics for trend analysis
+export interface GrowthMetrics {
+  revenueGrowthYoY?: number;      // Year-over-year revenue growth %
+  netIncomeGrowthYoY?: number;    // Year-over-year net income growth %
+  epsGrowthYoY?: number;          // Year-over-year EPS growth %
+}
+
+// Historical data point
+export interface HistoricalDataPoint {
+  year: string;
+  value: number;
+}
+
 // Financial metrics from verified sources
 export interface FinancialMetrics {
+  // Core income metrics
   revenue?: number;
   netIncome?: number;
   grossProfit?: number;
+  operatingIncome?: number;
+  eps?: number;
+
+  // EBITDA & Cash Flow
+  ebitda?: number;
+  operatingCashFlow?: number;
+  freeCashFlow?: number;
+  capitalExpenditures?: number;
+
+  // Balance sheet metrics
   totalAssets?: number;
   totalLiabilities?: number;
   totalEquity?: number;
-  operatingIncome?: number;
-  eps?: number;
+  totalDebt?: number;
+  currentAssets?: number;
+  currentLiabilities?: number;
+
+  // Financial ratios
+  ratios?: FinancialRatios;
+
+  // Growth metrics
+  growth?: GrowthMetrics;
+
+  // Historical data (3-5 years)
+  historicalRevenue?: HistoricalDataPoint[];
+  historicalNetIncome?: HistoricalDataPoint[];
+
+  // Metadata
   period?: string;
   fiscalYear?: string;
   currency?: string;
@@ -63,7 +112,7 @@ export interface FinancialMetrics {
 // Financial data from public filings
 export interface FinancialData {
   available: boolean;
-  source: 'SEC' | 'Companies House' | 'Public Filing' | 'None';
+  source: 'SEC' | 'Companies House' | 'Public Filing' | 'Yahoo Finance' | 'None';
   companyType: 'Public US' | 'UK Company' | 'Private' | 'Unknown';
   records: FinancialRecord[];
   filingLinks: Array<{ name: string; url: string; date: string }>;
@@ -72,6 +121,7 @@ export interface FinancialData {
   companyNumber?: string;
   message: string;
   metrics?: FinancialMetrics;
+  unavailableReason?: 'not_configured' | 'not_found' | 'private_company';
 }
 
 export interface FinancialRecord {

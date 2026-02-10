@@ -1,4 +1,5 @@
 import { CollectorResult, CollectorContext } from '../types';
+import { lookupYahooFinance } from './yahoo-finance';
 
 const SERPER_API_KEY = process.env.SERPER_API_KEY;
 const FMP_API_KEY = process.env.FMP_API_KEY;
@@ -11,15 +12,64 @@ export interface FinancialRecord {
   description: string;
 }
 
+// Financial ratios for PE analysis
+export interface FinancialRatios {
+  grossMargin?: number;
+  operatingMargin?: number;
+  netMargin?: number;
+  ebitdaMargin?: number;
+  debtToEquity?: number;
+  currentRatio?: number;
+  returnOnEquity?: number;
+  returnOnAssets?: number;
+}
+
+// Growth metrics
+export interface GrowthMetrics {
+  revenueGrowthYoY?: number;
+  netIncomeGrowthYoY?: number;
+  epsGrowthYoY?: number;
+}
+
+// Historical data point
+export interface HistoricalDataPoint {
+  year: string;
+  value: number;
+}
+
 export interface FinancialMetrics {
+  // Core income metrics
   revenue?: number;
   netIncome?: number;
   grossProfit?: number;
+  operatingIncome?: number;
+  eps?: number;
+
+  // EBITDA & Cash Flow
+  ebitda?: number;
+  operatingCashFlow?: number;
+  freeCashFlow?: number;
+  capitalExpenditures?: number;
+
+  // Balance sheet metrics
   totalAssets?: number;
   totalLiabilities?: number;
   totalEquity?: number;
-  operatingIncome?: number;
-  eps?: number;
+  totalDebt?: number;
+  currentAssets?: number;
+  currentLiabilities?: number;
+
+  // Financial ratios
+  ratios?: FinancialRatios;
+
+  // Growth metrics
+  growth?: GrowthMetrics;
+
+  // Historical data (3-5 years)
+  historicalRevenue?: HistoricalDataPoint[];
+  historicalNetIncome?: HistoricalDataPoint[];
+
+  // Metadata
   period?: string;
   fiscalYear?: string;
   currency?: string;
@@ -27,7 +77,7 @@ export interface FinancialMetrics {
 
 export interface FinancialData {
   available: boolean;
-  source: 'SEC' | 'Companies House' | 'Public Filing' | 'None';
+  source: 'SEC' | 'Companies House' | 'Public Filing' | 'Yahoo Finance' | 'None';
   companyType: 'Public US' | 'UK Company' | 'Private' | 'Unknown';
   records: FinancialRecord[];
   filingLinks: Array<{ name: string; url: string; date: string }>;
@@ -36,6 +86,7 @@ export interface FinancialData {
   companyNumber?: string;
   message: string;
   metrics?: FinancialMetrics;
+  unavailableReason?: 'not_configured' | 'not_found' | 'private_company';
 }
 
 const delay = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
@@ -54,6 +105,7 @@ export async function collectFinancialSignals(
     records: [],
     filingLinks: [],
     message: 'No public financial filings found',
+    unavailableReason: FMP_API_KEY ? undefined : 'not_configured',
   };
 
   console.log(`[Financials] Starting search for: "${companyName || domain}"`);
@@ -108,7 +160,51 @@ export async function collectFinancialSignals(
     }
   }
 
-  // Step 2: Fallback to SEC EDGAR search if FMP didn't find anything
+  // Step 2: Try Yahoo Finance as backup (free, no API key needed)
+  if (!financialData.available) {
+    try {
+      console.log(`[Financials] Step 2: Trying Yahoo Finance...`);
+      await delay(500);
+
+      const yahooResult = await lookupYahooFinance(companyName || domain || '');
+      if (yahooResult.found && yahooResult.metrics) {
+        financialData = {
+          available: true,
+          source: 'Yahoo Finance',
+          companyType: 'Public US',
+          records: [{
+            source: 'Yahoo Finance',
+            sourceUrl: `https://finance.yahoo.com/quote/${yahooResult.ticker}`,
+            verified: false,
+            period: `FY ${yahooResult.metrics.fiscalYear || 'Latest'}`,
+            description: 'Financial data from Yahoo Finance - verify with official SEC filings',
+          }],
+          filingLinks: yahooResult.ticker ? [{
+            name: `Yahoo Finance - ${yahooResult.companyName}`,
+            url: `https://finance.yahoo.com/quote/${yahooResult.ticker}/financials`,
+            date: '',
+          }, {
+            name: `SEC Filings`,
+            url: `https://www.sec.gov/cgi-bin/browse-edgar?company=${encodeURIComponent(yahooResult.companyName || '')}&type=10-K`,
+            date: '',
+          }] : [],
+          ticker: yahooResult.ticker,
+          message: `${yahooResult.companyName} (${yahooResult.ticker}) - Data from Yahoo Finance`,
+          metrics: yahooResult.metrics,
+        };
+        console.log(`[Financials] SUCCESS - Got Yahoo Finance data for ${yahooResult.ticker}`);
+      }
+    } catch (e) {
+      console.error(`[Financials] Yahoo Finance error:`, e);
+      errors.push({
+        code: 'YAHOO_FINANCE_ERROR',
+        message: `Yahoo Finance lookup failed: ${e}`,
+        recoverable: true,
+      });
+    }
+  }
+
+  // Step 3: Fallback to SEC EDGAR search if still nothing found
   if (!financialData.available) {
     try {
       console.log(`[Financials] Step 3: Fallback - Checking SEC EDGAR...`);
@@ -210,6 +306,17 @@ export async function collectFinancialSignals(
         message: `Financial search failed: ${e}`,
         recoverable: true,
       });
+    }
+  }
+
+  // Set unavailableReason if data was not found
+  if (!financialData.available) {
+    if (!FMP_API_KEY) {
+      financialData.unavailableReason = 'not_configured';
+      financialData.message = 'Financial data API not configured - add FMP_API_KEY to enable';
+    } else {
+      financialData.unavailableReason = 'not_found';
+      financialData.message = 'No public financial filings found - may be a private company';
     }
   }
 
@@ -454,33 +561,49 @@ async function searchTickerByName(companyName: string): Promise<{ found: boolean
   }
 }
 
-// Fetch financial metrics from Financial Modeling Prep API (using new stable endpoints)
+// Fetch comprehensive financial metrics from Financial Modeling Prep API
 async function fetchFinancialMetrics(ticker: string): Promise<FinancialMetrics | null> {
   if (!FMP_API_KEY) {
     return null;
   }
 
-  try {
-    // Get the latest annual income statement (new stable API endpoints)
-    const incomeUrl = `https://financialmodelingprep.com/stable/income-statement?symbol=${ticker}&period=annual&limit=1&apikey=${FMP_API_KEY}`;
-    const balanceUrl = `https://financialmodelingprep.com/stable/balance-sheet-statement?symbol=${ticker}&period=annual&limit=1&apikey=${FMP_API_KEY}`;
+  const FMP_BASE = 'https://financialmodelingprep.com/stable';
 
-    const [incomeResponse, balanceResponse] = await Promise.all([
-      fetch(incomeUrl),
-      fetch(balanceUrl),
+  try {
+    // Fetch all financial data in parallel for efficiency
+    const [
+      incomeResponse,
+      balanceResponse,
+      cashFlowResponse,
+      keyMetricsResponse,
+      growthResponse,
+      historicalIncomeResponse,
+    ] = await Promise.all([
+      fetch(`${FMP_BASE}/income-statement?symbol=${ticker}&period=annual&limit=1&apikey=${FMP_API_KEY}`),
+      fetch(`${FMP_BASE}/balance-sheet-statement?symbol=${ticker}&period=annual&limit=1&apikey=${FMP_API_KEY}`),
+      fetch(`${FMP_BASE}/cash-flow-statement?symbol=${ticker}&period=annual&limit=1&apikey=${FMP_API_KEY}`),
+      fetch(`${FMP_BASE}/key-metrics?symbol=${ticker}&period=annual&limit=1&apikey=${FMP_API_KEY}`),
+      fetch(`${FMP_BASE}/financial-growth?symbol=${ticker}&period=annual&limit=1&apikey=${FMP_API_KEY}`),
+      fetch(`${FMP_BASE}/income-statement?symbol=${ticker}&period=annual&limit=5&apikey=${FMP_API_KEY}`),
     ]);
 
-    if (!incomeResponse.ok || !balanceResponse.ok) {
-      console.log(`[Financials] FMP API returned non-OK status`);
-      return null;
-    }
+    // Parse all responses
+    const [incomeData, balanceData, cashFlowData, keyMetricsData, growthData, historicalData] = await Promise.all([
+      incomeResponse.ok ? incomeResponse.json() : [],
+      balanceResponse.ok ? balanceResponse.json() : [],
+      cashFlowResponse.ok ? cashFlowResponse.json() : [],
+      keyMetricsResponse.ok ? keyMetricsResponse.json() : [],
+      growthResponse.ok ? growthResponse.json() : [],
+      historicalIncomeResponse.ok ? historicalIncomeResponse.json() : [],
+    ]);
 
-    const incomeData = await incomeResponse.json();
-    const balanceData = await balanceResponse.json();
-
-    // FMP returns an array, get the first (most recent) entry
-    const income = Array.isArray(incomeData) ? incomeData[0] : null;
-    const balance = Array.isArray(balanceData) ? balanceData[0] : null;
+    // Get the most recent entries
+    const income = Array.isArray(incomeData) && incomeData.length > 0 ? incomeData[0] : null;
+    const balance = Array.isArray(balanceData) && balanceData.length > 0 ? balanceData[0] : null;
+    const cashFlow = Array.isArray(cashFlowData) && cashFlowData.length > 0 ? cashFlowData[0] : null;
+    const keyMetrics = Array.isArray(keyMetricsData) && keyMetricsData.length > 0 ? keyMetricsData[0] : null;
+    const growth = Array.isArray(growthData) && growthData.length > 0 ? growthData[0] : null;
+    const historical = Array.isArray(historicalData) ? historicalData : [];
 
     if (!income && !balance) {
       console.log(`[Financials] No financial data returned from FMP`);
@@ -500,6 +623,7 @@ async function fetchFinancialMetrics(ticker: string): Promise<FinancialMetrics |
       if (income.grossProfit) metrics.grossProfit = income.grossProfit;
       if (income.operatingIncome) metrics.operatingIncome = income.operatingIncome;
       if (income.eps) metrics.eps = income.eps;
+      if (income.ebitda) metrics.ebitda = income.ebitda;
     }
 
     // Balance sheet metrics
@@ -507,10 +631,74 @@ async function fetchFinancialMetrics(ticker: string): Promise<FinancialMetrics |
       if (balance.totalAssets) metrics.totalAssets = balance.totalAssets;
       if (balance.totalLiabilities) metrics.totalLiabilities = balance.totalLiabilities;
       if (balance.totalStockholdersEquity) metrics.totalEquity = balance.totalStockholdersEquity;
+      if (balance.totalDebt) metrics.totalDebt = balance.totalDebt;
+      if (balance.totalCurrentAssets) metrics.currentAssets = balance.totalCurrentAssets;
+      if (balance.totalCurrentLiabilities) metrics.currentLiabilities = balance.totalCurrentLiabilities;
+    }
+
+    // Cash flow metrics
+    if (cashFlow) {
+      if (cashFlow.operatingCashFlow) metrics.operatingCashFlow = cashFlow.operatingCashFlow;
+      if (cashFlow.freeCashFlow) metrics.freeCashFlow = cashFlow.freeCashFlow;
+      if (cashFlow.capitalExpenditure) metrics.capitalExpenditures = Math.abs(cashFlow.capitalExpenditure);
+    }
+
+    // Key metrics (ratios) - use pre-calculated from FMP or calculate manually
+    if (keyMetrics) {
+      metrics.ratios = {
+        grossMargin: keyMetrics.grossProfitMargin ?? (income?.grossProfit && income?.revenue ? income.grossProfit / income.revenue : undefined),
+        operatingMargin: keyMetrics.operatingProfitMargin ?? (income?.operatingIncome && income?.revenue ? income.operatingIncome / income.revenue : undefined),
+        netMargin: keyMetrics.netProfitMargin ?? (income?.netIncome && income?.revenue ? income.netIncome / income.revenue : undefined),
+        ebitdaMargin: income?.ebitda && income?.revenue ? income.ebitda / income.revenue : undefined,
+        debtToEquity: keyMetrics.debtToEquity ?? (balance?.totalDebt && balance?.totalStockholdersEquity ? balance.totalDebt / balance.totalStockholdersEquity : undefined),
+        currentRatio: keyMetrics.currentRatio ?? (balance?.totalCurrentAssets && balance?.totalCurrentLiabilities ? balance.totalCurrentAssets / balance.totalCurrentLiabilities : undefined),
+        returnOnEquity: keyMetrics.returnOnEquity ?? keyMetrics.roe,
+        returnOnAssets: keyMetrics.returnOnAssets ?? keyMetrics.roa,
+      };
+    } else if (income || balance) {
+      // Calculate ratios manually if key-metrics endpoint failed
+      metrics.ratios = {};
+      if (income?.grossProfit && income?.revenue) metrics.ratios.grossMargin = income.grossProfit / income.revenue;
+      if (income?.operatingIncome && income?.revenue) metrics.ratios.operatingMargin = income.operatingIncome / income.revenue;
+      if (income?.netIncome && income?.revenue) metrics.ratios.netMargin = income.netIncome / income.revenue;
+      if (income?.ebitda && income?.revenue) metrics.ratios.ebitdaMargin = income.ebitda / income.revenue;
+      if (balance?.totalDebt && balance?.totalStockholdersEquity) metrics.ratios.debtToEquity = balance.totalDebt / balance.totalStockholdersEquity;
+      if (balance?.totalCurrentAssets && balance?.totalCurrentLiabilities) metrics.ratios.currentRatio = balance.totalCurrentAssets / balance.totalCurrentLiabilities;
+      if (income?.netIncome && balance?.totalStockholdersEquity) metrics.ratios.returnOnEquity = income.netIncome / balance.totalStockholdersEquity;
+      if (income?.netIncome && balance?.totalAssets) metrics.ratios.returnOnAssets = income.netIncome / balance.totalAssets;
+    }
+
+    // Growth metrics
+    if (growth) {
+      metrics.growth = {
+        revenueGrowthYoY: growth.revenueGrowth,
+        netIncomeGrowthYoY: growth.netIncomeGrowth,
+        epsGrowthYoY: growth.epsgrowth ?? growth.epsGrowth,
+      };
+    }
+
+    // Historical data (3-5 years of revenue and net income)
+    if (historical.length > 0) {
+      metrics.historicalRevenue = historical
+        .filter((h: { calendarYear?: string; revenue?: number }) => h.calendarYear && h.revenue)
+        .map((h: { calendarYear: string; revenue: number }) => ({
+          year: h.calendarYear,
+          value: h.revenue,
+        }))
+        .reverse(); // Oldest first
+
+      metrics.historicalNetIncome = historical
+        .filter((h: { calendarYear?: string; netIncome?: number }) => h.calendarYear && h.netIncome !== undefined)
+        .map((h: { calendarYear: string; netIncome: number }) => ({
+          year: h.calendarYear,
+          value: h.netIncome,
+        }))
+        .reverse();
     }
 
     // Only return if we have at least one meaningful metric
     if (metrics.revenue || metrics.netIncome || metrics.totalAssets) {
+      console.log(`[Financials] SUCCESS - Got comprehensive metrics for ${ticker}`);
       return metrics;
     }
 
